@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+}
+
+body {
+  @apply bg-slate-900 text-white overflow-hidden;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+}
