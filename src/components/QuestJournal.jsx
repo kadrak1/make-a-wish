@@ -28,10 +28,10 @@ const QuestJournal = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="w-full max-w-2xl bg-[#1a1b26] border border-[#E3D7B6]/30 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="w-full max-w-2xl bg-[#1a1b26] border border-[#E3D7B6]/30 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[85vh] md:h-auto md:max-h-[80vh]">
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#15161e]">
+                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-[#15161e] shrink-0">
                     <div className="flex items-center gap-2 text-[#E3D7B6]">
                         <Book size={24} />
                         <h2 className="text-xl font-bold tracking-wider">Журнал заданий</h2>
@@ -42,28 +42,28 @@ const QuestJournal = ({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex p-2 gap-2 bg-[#12131a]">
+                <div className="flex p-2 gap-2 bg-[#12131a] shrink-0 overflow-x-auto">
                     <button
                         onClick={() => setActiveTab('all')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors ${activeTab === 'all' ? 'bg-[#E3D7B6] text-[#1a1b26]' : 'text-gray-400 hover:bg-white/5'}`}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'all' ? 'bg-[#E3D7B6] text-[#1a1b26]' : 'text-gray-400 hover:bg-white/5'}`}
                     >
                         Все
                     </button>
                     <button
                         onClick={() => setActiveTab('daily')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'daily' ? 'bg-purple-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'daily' ? 'bg-purple-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
                     >
                         <Calendar size={14} /> Ежедневные
                     </button>
                     <button
                         onClick={() => setActiveTab('main')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'main' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'main' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
                     >
                         <Star size={14} /> Главное
                     </button>
                     <button
                         onClick={() => setActiveTab('world')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'world' ? 'bg-blue-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'world' ? 'bg-blue-500 text-white' : 'text-gray-400 hover:bg-white/5'}`}
                     >
                         <Globe size={14} /> Мир
                     </button>

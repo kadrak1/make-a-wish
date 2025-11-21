@@ -35,7 +35,7 @@ const QuestItem = ({ quest, isCompleted, onComplete }) => {
 
     return (
         <div className={`relative p-4 mb-3 rounded-lg border-l-4 ${styles.border} ${styles.bg} backdrop-blur-sm transition-all hover:bg-opacity-30`}>
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                 <div className="flex-1">
                     <h3 className={`font-bold text-lg ${styles.text} mb-1`}>{title}</h3>
                     <p className="text-gray-300 text-sm mb-3">{description}</p>
@@ -64,12 +64,12 @@ const QuestItem = ({ quest, isCompleted, onComplete }) => {
                 <button
                     onClick={() => onComplete(quest.id)}
                     disabled={isCompleted}
-                    className={`ml-4 p-2 rounded-full transition-all ${isCompleted
+                    className={`w-full md:w-auto p-2 rounded-full transition-all flex items-center justify-center ${isCompleted
                         ? 'bg-green-500/20 text-green-400 cursor-default'
                         : 'bg-white/10 hover:bg-white/20 text-white active:scale-95'
                         }`}
                 >
-                    {isCompleted ? <Check size={20} /> : <span className="text-xs font-bold px-2">СТАРТ</span>}
+                    {isCompleted ? <Check size={20} /> : <span className="text-xs font-bold px-4 py-1">СТАРТ</span>}
                 </button>
             </div>
         </div>
