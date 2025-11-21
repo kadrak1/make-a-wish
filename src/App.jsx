@@ -8,6 +8,7 @@ import ProposalFinale from './components/ProposalFinale';
 import SettingsModal from './components/SettingsModal';
 import QuestJournal from './components/QuestJournal';
 import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings } from 'lucide-react';
+import bannerImage from './assets/images/banner.png';
 
 function App() {
   const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity } = useGachaSystem();
@@ -288,8 +289,13 @@ function App() {
               onClick={handleWishClick}
               className="w-full h-full border-2 border-[#E3D7B6]/50 rounded-xl overflow-hidden shadow-2xl shadow-black/50 flex items-center justify-center bg-black/20 backdrop-blur-sm group-hover:border-[#E3D7B6] transition-all duration-500 cursor-pointer active:scale-[0.99]"
             >
+              import bannerImage from './assets/images/banner.png';
+
+              // ... (existing imports)
+
+              // ... inside component
               <img
-                src="/src/assets/images/banner.png"
+                src={bannerImage}
                 alt="Event Banner"
                 className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500"
               />
