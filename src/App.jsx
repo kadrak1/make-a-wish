@@ -289,11 +289,6 @@ function App() {
               onClick={handleWishClick}
               className="w-full h-full border-2 border-[#E3D7B6]/50 rounded-xl overflow-hidden shadow-2xl shadow-black/50 flex items-center justify-center bg-black/20 backdrop-blur-sm group-hover:border-[#E3D7B6] transition-all duration-500 cursor-pointer active:scale-[0.99]"
             >
-              import bannerImage from './assets/images/banner.png';
-
-              // ... (existing imports)
-
-              // ... inside component
               <img
                 src={bannerImage}
                 alt="Event Banner"
