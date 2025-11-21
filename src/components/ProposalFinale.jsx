@@ -18,7 +18,7 @@ const ProposalFinale = ({ onAccept }) => {
             >
                 <Heart className="w-24 h-24 text-red-500 mx-auto mb-4 animate-pulse" fill="currentColor" />
                 <h1 className="text-5xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]">
-                    Will You Marry Me?
+                    Ты выйдешь за меня?
                 </h1>
             </motion.div>
 
@@ -32,13 +32,13 @@ const ProposalFinale = ({ onAccept }) => {
                     onClick={onAccept}
                     className="px-8 py-4 bg-gradient-to-r from-pink-500 to-rose-500 rounded-full text-xl font-bold shadow-lg hover:scale-105 transition-transform"
                 >
-                    Yes
+                    Да
                 </button>
                 <button
                     onClick={onAccept}
                     className="px-8 py-4 bg-gradient-to-r from-pink-500 to-rose-500 rounded-full text-xl font-bold shadow-lg hover:scale-105 transition-transform"
                 >
-                    Yes, of course!
+                    Да, конечно!
                 </button>
             </motion.div>
         </motion.div>

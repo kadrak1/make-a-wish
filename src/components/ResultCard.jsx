@@ -56,7 +56,7 @@ const ResultCard = ({ item, onDismiss }) => {
                 </div>
 
                 <div className="absolute bottom-2 text-xs text-white/30">
-                    Click to continue
+                    Нажми, чтобы продолжить
                 </div>
             </div>
         </motion.div>

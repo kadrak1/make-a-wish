@@ -2,22 +2,95 @@ import { useState, useEffect, useCallback } from 'react';
 import { prizePools } from '../config/prizes';
 
 export const useGachaSystem = () => {
-    const [queue, setQueue] = useState([]);
-    const [history, setHistory] = useState([]);
-    const [currentPullIndex, setCurrentPullIndex] = useState(0);
-    const [isFinished, setIsFinished] = useState(false);
+    // Initialize state from localStorage
+    const [queue, setQueue] = useState(() => {
+        try {
+            const saved = localStorage.getItem('maw_gacha_queue');
+            if (!saved) return [];
+            const parsed = JSON.parse(saved);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            console.error("Failed to parse queue", e);
+            return [];
+        }
+    });
+
+    const [history, setHistory] = useState(() => {
+        try {
+            const saved = localStorage.getItem('maw_gacha_history');
+            if (!saved) return [];
+            const parsed = JSON.parse(saved);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            console.error("Failed to parse history", e);
+            return [];
+        }
+    });
+
+    const [currentPullIndex, setCurrentPullIndex] = useState(() => {
+        try {
+            const saved = localStorage.getItem('maw_gacha_index');
+            const parsed = saved ? parseInt(saved, 10) : 0;
+            return isNaN(parsed) ? 0 : parsed;
+        } catch (e) {
+            console.error("Failed to parse pull index", e);
+            return 0;
+        }
+    });
+
+    const [isFinished, setIsFinished] = useState(() => {
+        try {
+            const saved = localStorage.getItem('maw_gacha_finished');
+            return saved === 'true';
+        } catch (e) {
+            console.error("Failed to parse isFinished", e);
+            return false;
+        }
+    });
+
+    // Persist state changes
+    useEffect(() => {
+        try {
+            localStorage.setItem('maw_gacha_queue', JSON.stringify(queue));
+        } catch (e) {
+            console.error("Failed to save queue", e);
+        }
+    }, [queue]);
 
     useEffect(() => {
-        // Initialize the rigged queue
+        try {
+            localStorage.setItem('maw_gacha_history', JSON.stringify(history));
+        } catch (e) {
+            console.error("Failed to save history", e);
+        }
+    }, [history]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('maw_gacha_index', currentPullIndex.toString());
+        } catch (e) {
+            console.error("Failed to save pull index", e);
+        }
+    }, [currentPullIndex]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('maw_gacha_finished', isFinished.toString());
+        } catch (e) {
+            console.error("Failed to save isFinished", e);
+        }
+    }, [isFinished]);
+
+    useEffect(() => {
+        // Initialize the rigged queue ONLY if it's empty
         const initQueue = () => {
+            if (queue.length > 0) return; // Don't overwrite existing queue
+
             const commons = [...prizePools.common];
             const epics = [...prizePools.epic];
             const legendary = prizePools.legendary[0];
 
             // We need exactly 6 commons and 3 epics for the first 9 pulls
-            // If the pool is smaller, we might need to duplicate or pick randomly.
-            // For now, assuming the pool has enough or we cycle.
-
             // Helper to get N random items from array
             const getRandomItems = (arr, n) => {
                 const result = [];
@@ -47,7 +120,7 @@ export const useGachaSystem = () => {
         };
 
         initQueue();
-    }, []);
+    }, [queue.length]);
 
     const pullItem = useCallback(() => {
         if (currentPullIndex >= queue.length) {

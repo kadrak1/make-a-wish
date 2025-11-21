@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Meteor from './Meteor';
 
-const VideoAnimation = ({ rarity, onComplete }) => {
+const VideoAnimation = ({ rarity, onComplete, volume = 0.5, isMuted = false, isActive = false }) => {
     const [videoError, setVideoError] = useState(false);
     const videoRef = useRef(null);
 
@@ -11,12 +11,19 @@ const VideoAnimation = ({ rarity, onComplete }) => {
 
     useEffect(() => {
         if (videoRef.current) {
-            videoRef.current.play().catch(err => {
-                console.warn("Video playback failed:", err);
-                setVideoError(true);
-            });
+            videoRef.current.volume = isMuted ? 0 : volume;
+
+            if (isActive) {
+                videoRef.current.currentTime = 0;
+                videoRef.current.play().catch(err => {
+                    console.warn("Video playback failed:", err);
+                    setVideoError(true);
+                });
+            } else {
+                videoRef.current.pause();
+            }
         }
-    }, [rarity]);
+    }, [isActive, rarity, volume, isMuted]);
 
     const handleVideoError = () => {
         console.warn(`Could not load video: ${videoSrc}`);
@@ -25,11 +32,11 @@ const VideoAnimation = ({ rarity, onComplete }) => {
 
     // If video fails or isn't found, fall back to the CSS Meteor animation
     if (videoError) {
-        return <Meteor rarity={rarity} onComplete={onComplete} />;
+        return isActive ? <Meteor rarity={rarity} onComplete={onComplete} /> : null;
     }
 
     return (
-        <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+        <div className={`fixed inset-0 z-50 bg-black flex items-center justify-center transition-opacity duration-300 ${isActive ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
             <video
                 ref={videoRef}
                 src={videoSrc}
@@ -37,8 +44,7 @@ const VideoAnimation = ({ rarity, onComplete }) => {
                 onEnded={onComplete}
                 onError={handleVideoError}
                 playsInline
-            // muted // Auto-play often requires muted, but for a "click" triggered event it might work with sound.
-            // Let's try without muted first, as sound is important for the effect.
+                preload="auto"
             />
             {/* Skip button just in case */}
             <button

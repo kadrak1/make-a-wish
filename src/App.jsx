@@ -1,13 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useGachaSystem } from './hooks/useGachaSystem';
+import { useQuestSystem } from './hooks/useQuestSystem';
 import VideoAnimation from './components/VideoAnimation';
 import ResultCard from './components/ResultCard';
 import Inventory from './components/Inventory';
 import ProposalFinale from './components/ProposalFinale';
-import { Sparkles, Volume2, VolumeX, Gem } from 'lucide-react';
+import SettingsModal from './components/SettingsModal';
+import QuestJournal from './components/QuestJournal';
+import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings } from 'lucide-react';
 
 function App() {
   const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity } = useGachaSystem();
+  const {
+    primogems,
+    wishes,
+    dailyQuests,
+    mainQuest,
+    worldQuests,
+    completedQuestIds,
+    completeQuest,
+    buyWish,
+    spendWish,
+    consumePrimosForWish
+  } = useQuestSystem();
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [showResult, setShowResult] = useState(false);
@@ -16,25 +31,101 @@ function App() {
 
   // UI State
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
-  const [volume, setVolume] = useState(0.5);
-  const [isMuted, setIsMuted] = useState(false);
-  const videoRef = useRef(null);
+  const [isQuestJournalOpen, setIsQuestJournalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [volume, setVolume] = useState(() => {
+    try {
+      const saved = localStorage.getItem('maw_volume');
+      const parsed = saved ? parseFloat(saved) : 0.5;
+      return isNaN(parsed) ? 0.5 : parsed;
+    } catch (e) {
+      console.error("Failed to parse volume", e);
+      return 0.5;
+    }
+  });
+
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      const saved = localStorage.getItem('maw_muted');
+      return saved === 'true';
+    } catch (e) {
+      console.error("Failed to parse muted state", e);
+      return false;
+    }
+  });
+
+  // Persist sound settings
+  useEffect(() => {
+    try {
+      localStorage.setItem('maw_volume', volume.toString());
+    } catch (e) {
+      console.error("Failed to save volume", e);
+    }
+  }, [volume]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem('maw_muted', isMuted.toString());
+    } catch (e) {
+      console.error("Failed to save muted state", e);
+    }
+  }, [isMuted]);
+  const videoRef = useRef(null);
+
+  // Update video volume when settings change or animation state changes
+  useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.volume = isMuted ? 0 : volume;
+      if (isAnimating || showResult) {
+        videoRef.current.volume = 0;
+      } else {
+        videoRef.current.volume = isMuted ? 0 : volume;
+      }
       // Attempt to play immediately
       videoRef.current.play().catch(error => {
         console.log("Autoplay prevented by browser:", error);
-        // Optional: We could show a "Click to Unmute" button here if needed
       });
     }
-  }, [volume, isMuted]);
+  }, [volume, isMuted, isAnimating, showResult]);
 
-  const handleWish = () => {
+  const [isWishConfirmOpen, setIsWishConfirmOpen] = useState(false);
+
+  const handleResetData = () => {
+    // Clear all app-specific keys
+    localStorage.removeItem('maw_primogems');
+    localStorage.removeItem('maw_wishes');
+    localStorage.removeItem('maw_completed_quests');
+    localStorage.removeItem('maw_gacha_queue');
+    localStorage.removeItem('maw_gacha_history');
+    localStorage.removeItem('maw_gacha_index');
+    localStorage.removeItem('maw_gacha_finished');
+    localStorage.removeItem('maw_volume');
+    localStorage.removeItem('maw_muted');
+
+    // Reload page to reset state
+    window.location.reload();
+  };
+
+  const handleWishClick = () => {
     if (isAnimating || showResult || showProposal) return;
 
-    setIsAnimating(true);
+    if (wishes === 0 && primogems < 160) {
+      alert("Не хватает Молитв или Камней Истока! Выполняй задания, чтобы получить больше.");
+      return;
+    }
+
+    setIsWishConfirmOpen(true);
+  };
+
+  const confirmWish = () => {
+    setIsWishConfirmOpen(false);
+
+    if (wishes > 0) {
+      spendWish();
+      setIsAnimating(true);
+    } else if (consumePrimosForWish()) {
+      // If no wishes but enough primos, auto-convert and wish
+      setIsAnimating(true);
+    }
   };
 
   const handleAnimationComplete = () => {
@@ -51,11 +142,6 @@ function App() {
     setShowResult(false);
     setCurrentResult(null);
 
-    // Check if we just pulled the last item (The Ring)
-    // The hook updates isFinished after the pull, so we check history length or currentPullIndex
-    // Actually, pullItem returns the item. If it was the 10th item (index 9), we are done.
-    // But useGachaSystem updates state asynchronously.
-    // Let's check if the item we just pulled is the legendary ring.
     if (currentResult && currentResult.rarity === 'legendary') {
       setShowProposal(true);
     }
@@ -83,72 +169,170 @@ function App() {
         onToggle={() => setIsInventoryOpen(!isInventoryOpen)}
       />
 
-      {/* Volume Control */}
-      <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 bg-black/40 p-2 rounded-full backdrop-blur-md border border-white/10 hover:bg-black/60 transition-colors">
-        <button
-          onClick={() => setIsMuted(!isMuted)}
-          className="p-1 hover:text-blue-400 transition-colors"
-        >
-          {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-        </button>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.1"
-          value={isMuted ? 0 : volume}
-          onChange={(e) => {
-            setVolume(parseFloat(e.target.value));
-            setIsMuted(false);
-          }}
-          className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
-        />
-      </div>
+      {/* Quest Journal Modal */}
+      <QuestJournal
+        isOpen={isQuestJournalOpen}
+        onClose={() => setIsQuestJournalOpen(false)}
+        dailyQuests={dailyQuests}
+        mainQuest={mainQuest}
+        worldQuests={worldQuests}
+        completedQuestIds={completedQuestIds}
+        onCompleteQuest={completeQuest}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        volume={volume}
+        setVolume={setVolume}
+        isMuted={isMuted}
+        setIsMuted={setIsMuted}
+        onResetData={handleResetData}
+      />
+
+      {/* Wish Confirmation Modal */}
+      {isWishConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#F4F4F5] w-full max-w-md rounded-xl border-2 border-[#E3D7B6] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-[#E3D7B6] px-6 py-3 flex items-center justify-between">
+              <h2 className="text-[#8E7C68] font-bold text-lg uppercase tracking-wider flex items-center gap-2">
+                <Star size={20} className="fill-[#8E7C68]" />
+                Подтверждение
+              </h2>
+            </div>
+
+            <div className="p-6 text-center">
+              <p className="text-[#8E7C68] text-lg mb-6 font-medium">
+                Потратить 1 Молитву?
+              </p>
+
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={() => setIsWishConfirmOpen(false)}
+                  className="px-6 py-2 rounded-full border-2 border-[#E3D7B6] text-[#8E7C68] font-bold hover:bg-[#E3D7B6]/10 transition-colors"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={confirmWish}
+                  className="px-6 py-2 rounded-full bg-[#E3D7B6] text-white font-bold hover:bg-[#d4c4a0] transition-colors shadow-md"
+                >
+                  Молиться
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <div className={`relative z-10 flex flex-col items-center justify-center min-h-screen p-4 transition-all duration-500 ${isInventoryOpen ? 'md:pl-64' : ''}`}>
 
-        {/* Header / Counter */}
-        <div className="absolute top-8 right-8 flex items-center gap-3 bg-[#F4F4F5] px-6 py-2 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
-          <Gem size={20} className="text-cyan-400 fill-cyan-400 drop-shadow-md" />
-          <span className="font-bold tracking-wider text-[#8E7C68] text-lg">
-            {currentPullIndex} / {totalPulls}
-          </span>
+        {/* Top Bar: Resources & Counter */}
+        <div className="absolute top-8 right-8 flex flex-col items-end gap-2">
+
+          {/* Primogems */}
+          <div className="flex items-center gap-3 bg-[#F4F4F5] px-4 py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
+            <Gem size={18} className="text-cyan-400 fill-cyan-400 drop-shadow-md" />
+            <span className="font-bold text-[#8E7C68] text-sm">{primogems}</span>
+          </div>
+
+          {/* Wishes */}
+          <div className="flex items-center gap-3 bg-[#F4F4F5] px-4 py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
+            <Star size={18} className="text-pink-400 fill-pink-400 drop-shadow-md" />
+            <span className="font-bold text-[#8E7C68] text-sm">{wishes}</span>
+            <button
+              onClick={buyWish}
+              className="ml-2 p-0.5 bg-[#E3D7B6] rounded-full text-white hover:bg-[#d4c4a0] active:scale-95 transition-all"
+              title="Обменять 160 Камней Истока на 1 Молитву"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+
+          {/* Pity Counter */}
+          <div className="flex items-center gap-3 bg-black/40 px-4 py-1 rounded-full border border-white/10 backdrop-blur-sm mt-2">
+            <span className="text-xs text-gray-300 uppercase tracking-wider">Гарант</span>
+            <span className="font-bold text-white text-sm">
+              {currentPullIndex} / {totalPulls}
+            </span>
+          </div>
         </div>
 
-        {/* Wish Button */}
-        {!showProposal && !isAnimating && !showResult && (
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-center">
-            <button
-              onClick={handleWish}
-              className="group relative px-16 py-2 bg-[#F4F4F5] rounded-full border-[3px] border-[#E3D7B6] hover:scale-105 transition-all duration-300 shadow-lg shadow-black/20 flex items-center gap-4 mx-auto"
-            >
-              <div className="flex flex-col items-center leading-none">
-                <span className="text-[#8E7C68] font-bold text-2xl tracking-widest mb-0.5">WISH x1</span>
-                <div className="flex items-center gap-1">
-                  <Gem size={14} className="text-cyan-400 fill-cyan-400" />
-                  <span className="text-[#8E7C68] font-bold text-xs">x 1</span>
-                </div>
-              </div>
+        {/* Quest Journal Button */}
+        <div className="absolute top-8 left-8 z-40 flex gap-4">
+          <button
+            onClick={() => setIsQuestJournalOpen(true)}
+            className="group relative p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+            title="Журнал заданий"
+          >
+            <Book size={24} className="text-[#8E7C68]" />
+          </button>
 
-              {/* Decorative side elements (simple CSS shapes or icons) */}
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
-                <Sparkles size={12} />
-              </div>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
-                <Sparkles size={12} />
-              </div>
-            </button>
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="group relative p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+            title="Настройки"
+          >
+            <Settings size={24} className="text-[#8E7C68]" />
+          </button>
+        </div>
+
+        {/* Banner & Wish Button Container */}
+        {!showProposal && !isAnimating && !showResult && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] w-[1362px] h-[566px] max-w-[95vw] max-h-[80vh] group transition-all duration-500">
+
+            {/* Banner Image (Clickable) */}
+            <div
+              onClick={handleWishClick}
+              className="w-full h-full border-2 border-[#E3D7B6]/50 rounded-xl overflow-hidden shadow-2xl shadow-black/50 flex items-center justify-center bg-black/20 backdrop-blur-sm group-hover:border-[#E3D7B6] transition-all duration-500 cursor-pointer active:scale-[0.99]"
+            >
+              <img
+                src="/src/assets/images/banner.png"
+                alt="Event Banner"
+                className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500"
+              />
+            </div>
+
+            {/* Wish Button (Positioned relative to banner) */}
+            <div className="absolute -bottom-6 -right-6 z-20">
+              <button
+                onClick={handleWishClick}
+                disabled={wishes === 0 && primogems < 160}
+                className={`group/btn relative px-12 py-3 rounded-full border-[3px] border-[#E3D7B6] transition-all duration-300 shadow-xl shadow-black/40 flex items-center gap-3 ${wishes > 0 || primogems >= 160
+                  ? 'bg-[#F4F4F5] hover:scale-105 hover:-translate-y-1 cursor-pointer'
+                  : 'bg-gray-200 grayscale cursor-not-allowed opacity-80'
+                  }`}
+              >
+                <div className="flex flex-col items-center leading-none">
+                  <span className="text-[#8E7C68] font-bold text-xl tracking-widest mb-0.5">МОЛИТВА x1</span>
+                  <div className="flex items-center gap-1">
+                    <Star size={14} className="text-pink-400 fill-pink-400" />
+                    <span className="text-[#8E7C68] font-bold text-xs">x 1</span>
+                  </div>
+                </div>
+
+                {/* Decorative side elements */}
+                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
+                  <Sparkles size={10} />
+                </div>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
+                  <Sparkles size={10} />
+                </div>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Video Animation (Falls back to Meteor if video missing) */}
-        {isAnimating && (
-          <VideoAnimation
-            rarity={nextItemRarity}
-            onComplete={handleAnimationComplete}
-          />
-        )}
+        {/* Video Animation (Always rendered for preloading) */}
+        <VideoAnimation
+          rarity={nextItemRarity}
+          onComplete={handleAnimationComplete}
+          volume={volume}
+          isMuted={isMuted}
+          isActive={isAnimating}
+        />
 
         {/* Result Card */}
         {showResult && (
@@ -161,27 +345,25 @@ function App() {
         {/* Proposal Finale */}
         {showProposal && (
           <ProposalFinale
-            onAccept={() => alert("She said YES! Congratulations! ❤️")}
+            onAccept={() => alert("Она сказала ДА! Поздравляем! ❤️")}
           />
         )}
 
       </div>
 
-      {/* Background Video (Loops with sound) */}
-      {!isAnimating && !showResult && !showProposal && (
-        <div className="absolute inset-0 z-0">
-          <video
-            ref={videoRef}
-            autoPlay
-            loop
-            playsInline
-            className="w-full h-full object-cover"
-            src="/videos/background.mp4"
-          >
-            Your browser does not support the video tag.
-          </video>
-        </div>
-      )}
+      {/* Background Video (Always mounted to prevent reloading delay) */}
+      <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isAnimating || showResult || showProposal ? 'opacity-0' : 'opacity-100'}`}>
+        <video
+          ref={videoRef}
+          autoPlay
+          loop
+          playsInline
+          className="w-full h-full object-cover"
+          src="/videos/background.mp4"
+        >
+          Your browser does not support the video tag.
+        </video>
+      </div>
 
 
     </div>
