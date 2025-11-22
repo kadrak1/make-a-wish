@@ -1,121 +1,290 @@
 import { useState, useCallback, useEffect } from 'react';
-import { dailyQuests } from '../config/quests/daily';
-import { mainQuest } from '../config/quests/main';
-import { worldQuests } from '../config/quests/world';
+import { dailyQuests as defaultDailyQuests } from '../config/quests/daily';
+import { mainQuestSteps as defaultMainQuestSteps } from '../config/quests/main';
+import { worldQuests as defaultWorldQuests } from '../config/quests/world';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 
 export const useQuestSystem = () => {
-    // Initialize state from localStorage or default to 0/empty
-    const [primogems, setPrimogems] = useState(() => {
-        try {
-            const saved = localStorage.getItem('maw_primogems');
-            const parsed = saved ? parseInt(saved, 10) : 0;
-            return isNaN(parsed) ? 0 : parsed;
-        } catch (e) {
-            console.error("Failed to parse primogems", e);
-            return 0;
-        }
-    });
+    const { user } = useAuth();
+    const [primogems, setPrimogems] = useState(0);
+    const [wishes, setWishes] = useState(0);
+    const [completedQuestIds, setCompletedQuestIds] = useState([]);
 
-    const [wishes, setWishes] = useState(() => {
-        try {
-            const saved = localStorage.getItem('maw_wishes');
-            const parsed = saved ? parseInt(saved, 10) : 0;
-            return isNaN(parsed) ? 0 : parsed;
-        } catch (e) {
-            console.error("Failed to parse wishes", e);
-            return 0;
-        }
-    });
+    // State for quests to allow dynamic updates from DB
+    const [dailyQuests, setDailyQuests] = useState(defaultDailyQuests);
+    const [mainQuestSteps, setMainQuestSteps] = useState(defaultMainQuestSteps);
+    const [worldQuests, setWorldQuests] = useState(defaultWorldQuests);
 
-    const [completedQuestIds, setCompletedQuestIds] = useState(() => {
-        try {
-            const saved = localStorage.getItem('maw_completed_quests');
-            if (!saved) return [];
-            const parsed = JSON.parse(saved);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
-            console.error("Failed to parse completed quests", e);
-            return [];
-        }
-    });
+    const [dailyRewardClaimed, setDailyRewardClaimed] = useState(false);
+    const [loading, setLoading] = useState(true);
 
-    // Persist state changes to localStorage
+    // Helper to get current Moscow date string (YYYY-MM-DD)
+    const getMoscowDateString = () => {
+        const now = new Date();
+        const moscowTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Moscow" }));
+        return moscowTime.toISOString().split('T')[0];
+    };
+
+    // Fetch data from Supabase
     useEffect(() => {
-        try {
-            localStorage.setItem('maw_primogems', primogems.toString());
-        } catch (e) {
-            console.error("Failed to save primogems", e);
-        }
-    }, [primogems]);
+        if (!user) return;
 
-    useEffect(() => {
-        try {
-            localStorage.setItem('maw_wishes', wishes.toString());
-        } catch (e) {
-            console.error("Failed to save wishes", e);
-        }
-    }, [wishes]);
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                // 1. Fetch Game State
+                const { data: gameState, error: stateError } = await supabase
+                    .from('game_state')
+                    .select('primogems, wishes, completed_quests, settings')
+                    .eq('user_id', user.id)
+                    .single();
 
-    useEffect(() => {
-        try {
-            localStorage.setItem('maw_completed_quests', JSON.stringify(completedQuestIds));
-        } catch (e) {
-            console.error("Failed to save completed quests", e);
-        }
-    }, [completedQuestIds]);
+                if (stateError) throw stateError;
 
-    // Combine all quests for easy lookup
+                let currentCompletedQuests = gameState.completed_quests || [];
+                let currentSettings = gameState.settings || {};
+                let currentDailyRewardClaimed = currentSettings.daily_reward_claimed || false;
+
+                // Check for daily reset
+                const today = getMoscowDateString();
+                const lastReset = currentSettings.last_daily_reset;
+
+                if (lastReset !== today) {
+                    // Reset daily quests
+                    currentCompletedQuests = currentCompletedQuests.filter(id => !id.startsWith('daily_'));
+                    currentDailyRewardClaimed = false;
+
+                    // Update DB with reset state
+                    await supabase
+                        .from('game_state')
+                        .update({
+                            completed_quests: currentCompletedQuests,
+                            settings: {
+                                ...currentSettings,
+                                last_daily_reset: today,
+                                daily_reward_claimed: false
+                            }
+                        })
+                        .eq('user_id', user.id);
+
+                    // Update local settings to reflect reset
+                    currentSettings = {
+                        ...currentSettings,
+                        last_daily_reset: today,
+                        daily_reward_claimed: false
+                    };
+                }
+
+                if (gameState) {
+                    setPrimogems(gameState.primogems || 0);
+                    setWishes(gameState.wishes || 0);
+                    setCompletedQuestIds(currentCompletedQuests);
+                    setDailyRewardClaimed(currentDailyRewardClaimed);
+                }
+
+                // 2. Fetch Custom Quests Config
+                const { data: questConfig, error: questError } = await supabase
+                    .from('user_quests')
+                    .select('daily_quests_config, main_quests_config, world_quests_config')
+                    .eq('user_id', user.id)
+                    .single();
+
+                if (questConfig) {
+                    // Daily Quests
+                    if (questConfig.daily_quests_config && questConfig.daily_quests_config.length > 0) {
+                        const normalizedDaily = questConfig.daily_quests_config.map(q => ({
+                            ...q,
+                            title: q.title || q.text || 'Новое задание',
+                            description: q.description || '',
+                            type: q.type || 'daily',
+                            rewards: q.rewards || { primogems: q.reward || 0 }
+                        }));
+                        setDailyQuests(normalizedDaily);
+                    } else {
+                        setDailyQuests(defaultDailyQuests);
+                    }
+
+                    // Main Quests
+                    if (questConfig.main_quests_config && questConfig.main_quests_config.length > 0) {
+                        setMainQuestSteps(questConfig.main_quests_config);
+                    } else {
+                        setMainQuestSteps(defaultMainQuestSteps);
+                    }
+
+                    // World Quests
+                    if (questConfig.world_quests_config && questConfig.world_quests_config.length > 0) {
+                        setWorldQuests(questConfig.world_quests_config);
+                    } else {
+                        setWorldQuests(defaultWorldQuests);
+                    }
+                } else {
+                    setDailyQuests(defaultDailyQuests);
+                    setMainQuestSteps(defaultMainQuestSteps);
+                    setWorldQuests(defaultWorldQuests);
+                }
+
+            } catch (error) {
+                console.error("Error fetching quest data:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [user]);
+
+    // Determine current main quest step
+    const currentMainQuestIndex = mainQuestSteps.findIndex(step => !completedQuestIds.includes(step.id));
+    const isMainQuestCompleted = currentMainQuestIndex === -1 && mainQuestSteps.every(step => completedQuestIds.includes(step.id));
+
+    const currentMainQuest = currentMainQuestIndex !== -1 ? mainQuestSteps[currentMainQuestIndex] : null;
+
+    const mainQuestProgress = {
+        current: currentMainQuestIndex !== -1 ? currentMainQuestIndex + 1 : mainQuestSteps.length,
+        total: mainQuestSteps.length,
+        isCompleted: currentMainQuestIndex === -1
+    };
+
+    // Calculate daily progress
+    const completedDailyCount = dailyQuests.filter(q => completedQuestIds.includes(q.id)).length;
+    const dailyProgress = {
+        current: completedDailyCount,
+        total: 4, // Hardcoded requirement as per request
+        isClaimed: dailyRewardClaimed,
+        canClaim: completedDailyCount >= 4 && !dailyRewardClaimed
+    };
+
+    // Combine all quests for easy lookup (include all steps for lookup purposes)
     const allQuests = [
         ...dailyQuests,
-        mainQuest,
+        ...mainQuestSteps,
         ...worldQuests
     ];
 
-    const completeQuest = useCallback((questId) => {
+    const updateGameState = async (updates) => {
+        if (!user) return;
+
+        // Optimistic update
+        if (updates.primogems !== undefined) setPrimogems(updates.primogems);
+        if (updates.wishes !== undefined) setWishes(updates.wishes);
+        if (updates.completed_quests !== undefined) setCompletedQuestIds(updates.completed_quests);
+
+        try {
+            const { error } = await supabase
+                .from('game_state')
+                .update(updates)
+                .eq('user_id', user.id);
+
+            if (error) throw error;
+        } catch (error) {
+            console.error("Error updating game state:", error);
+            // Revert changes? For now, just log.
+        }
+    };
+
+    const completeQuest = useCallback(async (questId) => {
         if (completedQuestIds.includes(questId)) return;
 
         const quest = allQuests.find(q => q.id === questId);
         if (!quest) return;
 
-        setPrimogems(prev => prev + quest.rewards.primogems);
-        setCompletedQuestIds(prev => [...prev, questId]);
-    }, [completedQuestIds, allQuests]);
+        const newPrimos = primogems + (quest.rewards.primogems || 0);
+        let newWishes = wishes;
 
-    const buyWish = useCallback(() => {
+        if (quest.rewards.wishes) {
+            newWishes += quest.rewards.wishes;
+        }
+
+        const newCompleted = [...completedQuestIds, questId];
+
+        await updateGameState({
+            primogems: newPrimos,
+            wishes: newWishes,
+            completed_quests: newCompleted
+        });
+    }, [completedQuestIds, allQuests, primogems, wishes, user]);
+
+    const claimDailyReward = useCallback(async () => {
+        if (dailyProgress.canClaim) {
+            const newPrimos = primogems + 20;
+            setDailyRewardClaimed(true); // Optimistic
+            setPrimogems(newPrimos);
+
+            try {
+                // Fetch current settings first to preserve other settings
+                const { data: gameState } = await supabase
+                    .from('game_state')
+                    .select('settings')
+                    .eq('user_id', user.id)
+                    .single();
+
+                const currentSettings = gameState?.settings || {};
+
+                await supabase
+                    .from('game_state')
+                    .update({
+                        primogems: newPrimos,
+                        settings: {
+                            ...currentSettings,
+                            daily_reward_claimed: true
+                        }
+                    })
+                    .eq('user_id', user.id);
+            } catch (error) {
+                console.error("Error claiming daily reward:", error);
+                setDailyRewardClaimed(false); // Revert
+                setPrimogems(primogems);
+            }
+        }
+    }, [dailyProgress, primogems, user]);
+
+    const buyWish = useCallback(async () => {
         if (primogems >= 160) {
-            setPrimogems(prev => prev - 160);
-            setWishes(prev => prev + 1);
+            const newPrimos = primogems - 160;
+            const newWishes = wishes + 1;
+
+            await updateGameState({
+                primogems: newPrimos,
+                wishes: newWishes
+            });
             return true;
         }
         return false;
-    }, [primogems]);
+    }, [primogems, wishes, user]);
 
-    const spendWish = useCallback(() => {
+    const spendWish = useCallback(async () => {
         if (wishes > 0) {
-            setWishes(prev => prev - 1);
+            const newWishes = wishes - 1;
+            await updateGameState({ wishes: newWishes });
             return true;
         }
         return false;
-    }, [wishes]);
+    }, [wishes, user]);
 
-    const consumePrimosForWish = useCallback(() => {
+    const consumePrimosForWish = useCallback(async () => {
         if (primogems >= 160) {
-            setPrimogems(prev => prev - 160);
+            const newPrimos = primogems - 160;
+            await updateGameState({ primogems: newPrimos });
             return true;
         }
         return false;
-    }, [primogems]);
+    }, [primogems, user]);
 
     return {
         primogems,
         wishes,
         completedQuestIds,
         dailyQuests,
-        mainQuest,
+        mainQuest: currentMainQuest, // Return the current step or null
+        mainQuestProgress,
         worldQuests,
+        dailyProgress,
         completeQuest,
+        claimDailyReward,
         buyWish,
         spendWish,
-        consumePrimosForWish
+        consumePrimosForWish,
+        loading
     };
 };

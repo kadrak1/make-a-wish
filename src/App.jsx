@@ -7,22 +7,31 @@ import Inventory from './components/Inventory';
 import ProposalFinale from './components/ProposalFinale';
 import SettingsModal from './components/SettingsModal';
 import QuestJournal from './components/QuestJournal';
-import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings } from 'lucide-react';
+import LoginScreen from './components/LoginScreen';
+import AdminPanel from './components/AdminPanel';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { supabase } from './supabaseClient';
+import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Shield } from 'lucide-react';
 import bannerImage from './assets/images/banner.png';
 
-function App() {
-  const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity } = useGachaSystem();
+function Game() {
+  const { user, logout } = useAuth();
+  const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, loading: gachaLoading } = useGachaSystem();
   const {
     primogems,
     wishes,
     dailyQuests,
     mainQuest,
+    mainQuestProgress,
     worldQuests,
     completedQuestIds,
     completeQuest,
     buyWish,
     spendWish,
-    consumePrimosForWish
+    consumePrimosForWish,
+    dailyProgress,
+    claimDailyReward,
+    loading: questLoading
   } = useQuestSystem();
 
   const [isAnimating, setIsAnimating] = useState(false);
@@ -34,6 +43,8 @@ function App() {
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isQuestJournalOpen, setIsQuestJournalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+
   const [volume, setVolume] = useState(() => {
     try {
       const saved = localStorage.getItem('maw_volume');
@@ -90,20 +101,29 @@ function App() {
 
   const [isWishConfirmOpen, setIsWishConfirmOpen] = useState(false);
 
-  const handleResetData = () => {
-    // Clear all app-specific keys
-    localStorage.removeItem('maw_primogems');
-    localStorage.removeItem('maw_wishes');
-    localStorage.removeItem('maw_completed_quests');
-    localStorage.removeItem('maw_gacha_queue');
-    localStorage.removeItem('maw_gacha_history');
-    localStorage.removeItem('maw_gacha_index');
-    localStorage.removeItem('maw_gacha_finished');
-    localStorage.removeItem('maw_volume');
-    localStorage.removeItem('maw_muted');
+  const handleResetData = async () => {
+    if (!confirm("Вы уверены? Это полностью сотрет ваш прогресс на сервере.")) return;
 
-    // Reload page to reset state
-    window.location.reload();
+    try {
+      // Reset Game State in Supabase
+      await supabase
+        .from('game_state')
+        .update({
+          primogems: 0,
+          wishes: 0,
+          pity_counter: 0,
+          history: [],
+          completed_quests: [],
+          queue: [] // Will trigger re-rigging
+        })
+        .eq('user_id', user.id);
+
+      // Reload page to reset state
+      window.location.reload();
+    } catch (error) {
+      console.error("Error resetting data:", error);
+      alert("Ошибка сброса данных");
+    }
   };
 
   const handleWishClick = () => {
@@ -129,9 +149,9 @@ function App() {
     }
   };
 
-  const handleAnimationComplete = () => {
+  const handleAnimationComplete = async () => {
     setIsAnimating(false);
-    const item = pullItem();
+    const item = await pullItem(); // pullItem is now async
 
     if (item) {
       setCurrentResult(item);
@@ -157,6 +177,18 @@ function App() {
     }
   };
 
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  if (gachaLoading || questLoading) {
+    return (
+      <div className="min-h-screen bg-[#1a1a2e] flex items-center justify-center">
+        <Sparkles className="w-12 h-12 text-[#E3D7B6] animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={handleInteraction}
@@ -176,9 +208,12 @@ function App() {
         onClose={() => setIsQuestJournalOpen(false)}
         dailyQuests={dailyQuests}
         mainQuest={mainQuest}
+        mainQuestProgress={mainQuestProgress}
         worldQuests={worldQuests}
         completedQuestIds={completedQuestIds}
         onCompleteQuest={completeQuest}
+        dailyProgress={dailyProgress}
+        onClaimDailyReward={claimDailyReward}
       />
 
       {/* Settings Modal */}
@@ -191,6 +226,14 @@ function App() {
         setIsMuted={setIsMuted}
         onResetData={handleResetData}
       />
+
+      {/* Admin Panel */}
+      {user.role === 'admin' && (
+        <AdminPanel
+          isOpen={isAdminOpen}
+          onClose={() => setIsAdminOpen(false)}
+        />
+      )}
 
       {/* Wish Confirmation Modal */}
       {isWishConfirmOpen && (
@@ -232,6 +275,14 @@ function App() {
 
         {/* Top Bar: Resources & Counter */}
         <div className="absolute top-4 right-4 md:top-8 md:right-8 flex flex-col items-end gap-2 z-50">
+
+          {/* User Info & Logout */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[#E3D7B6] font-bold text-sm shadow-black drop-shadow-md">{user.nickname}</span>
+            <button onClick={logout} className="p-1 bg-red-500/20 rounded-full hover:bg-red-500/40 transition-colors" title="Выйти">
+              <LogOut size={14} className="text-red-300" />
+            </button>
+          </div>
 
           {/* Primogems */}
           <div className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
@@ -278,6 +329,17 @@ function App() {
           >
             <Settings size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
           </button>
+
+          {/* Admin Button */}
+          {user.role === 'admin' && (
+            <button
+              onClick={() => setIsAdminOpen(true)}
+              className="group relative p-2 md:p-3 bg-[#1a1a2e] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+              title="Админ панель"
+            >
+              <Shield size={20} className="md:w-[24px] md:h-[24px] text-[#E3D7B6]" />
+            </button>
+          )}
         </div>
 
         {/* Banner & Wish Button Container */}
@@ -361,6 +423,9 @@ function App() {
           playsInline
           className="w-full h-full object-cover"
           src="/videos/background.mp4"
+          onLoadedMetadata={(e) => {
+            e.target.volume = isMuted ? 0 : volume;
+          }}
         >
           Your browser does not support the video tag.
         </video>
@@ -368,6 +433,14 @@ function App() {
 
 
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <Game />
+    </AuthProvider>
   );
 }
 

@@ -45,6 +45,9 @@ const VideoAnimation = ({ rarity, onComplete, volume = 0.5, isMuted = false, isA
                 onError={handleVideoError}
                 playsInline
                 preload="auto"
+                onLoadedMetadata={(e) => {
+                    e.target.volume = isMuted ? 0 : volume;
+                }}
             />
             {/* Skip button just in case */}
             <button
