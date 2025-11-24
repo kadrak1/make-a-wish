@@ -52,7 +52,7 @@ export const useQuestSystem = () => {
 
                 if (lastReset !== today) {
                     // Reset daily quests
-                    currentCompletedQuests = currentCompletedQuests.filter(id => !id.startsWith('daily_'));
+                    currentCompletedQuests = currentCompletedQuests.filter(id => !String(id).startsWith('daily_'));
                     currentDailyRewardClaimed = false;
 
                     // Update DB with reset state
