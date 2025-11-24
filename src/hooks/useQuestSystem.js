@@ -28,147 +28,148 @@ export const useQuestSystem = () => {
     };
 
     // Fetch data from Supabase
-    useEffect(() => {
+    const fetchData = useCallback(async () => {
         if (!user) return;
-
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                // 1. Fetch Game State
-                const { data: gameState, error: stateError } = await supabase
+        setLoading(true);
+        try {
+            // 1. Fetch Game State & User Quests in parallel
+            const [gameStateResponse, questConfigResponse] = await Promise.all([
+                supabase
                     .from('game_state')
                     .select('primogems, wishes, completed_quests, settings')
                     .eq('user_id', user.id)
-                    .single();
-
-                if (stateError) throw stateError;
-
-                let currentCompletedQuests = gameState.completed_quests || [];
-                let currentSettings = gameState.settings || {};
-                let currentDailyRewardClaimed = currentSettings.daily_reward_claimed || false;
-                let currentCompensationClaimed = currentSettings.compensation_claimed || false;
-
-                // Check for daily reset
-                const today = getMoscowDateString();
-                const lastReset = currentSettings.last_daily_reset;
-
-                if (lastReset !== today) {
-                    // Reset daily quests
-                    currentCompletedQuests = currentCompletedQuests.filter(id => !String(id).startsWith('daily_'));
-                    currentDailyRewardClaimed = false;
-
-                    // Update DB with reset state
-                    await supabase
-                        .from('game_state')
-                        .update({
-                            completed_quests: currentCompletedQuests,
-                            settings: {
-                                ...currentSettings,
-                                last_daily_reset: today,
-                                daily_reward_claimed: false
-                            }
-                        })
-                        .eq('user_id', user.id);
-
-                    // Update local settings to reflect reset
-                    currentSettings = {
-                        ...currentSettings,
-                        last_daily_reset: today,
-                        daily_reward_claimed: false
-                    };
-                }
-
-                if (gameState) {
-                    setPrimogems(gameState.primogems || 0);
-                    setWishes(gameState.wishes || 0);
-                    setCompletedQuestIds(currentCompletedQuests);
-                    setDailyRewardClaimed(currentDailyRewardClaimed);
-                    setCompensationClaimed(currentCompensationClaimed);
-                }
-
-                // 2. Fetch Custom Quests Config
-                const { data: questConfig, error: questError } = await supabase
+                    .single(),
+                supabase
                     .from('user_quests')
                     .select('daily_quests_config, main_quests_config, world_quests_config')
                     .eq('user_id', user.id)
-                    .single();
+                    .single()
+            ]);
 
-                console.log("Quest Config Fetch Result:", { questConfig, questError, userId: user.id });
+            const { data: gameState, error: stateError } = gameStateResponse;
+            const { data: questConfig, error: questError } = questConfigResponse;
 
-                // Prepare defaults
-                let finalDaily = defaultDailyQuests;
-                let finalMain = defaultMainQuestSteps;
-                let finalWorld = defaultWorldQuests;
-                let needsUpdate = false;
-                let updates = { user_id: user.id };
+            if (stateError) throw stateError;
 
-                if (questConfig) {
-                    // Daily Quests: Use DB if not null, otherwise default
-                    if (questConfig.daily_quests_config !== null) {
-                        finalDaily = questConfig.daily_quests_config;
-                    } else {
-                        needsUpdate = true;
-                        updates.daily_quests_config = defaultDailyQuests;
-                    }
+            // 2. Process Quest Config (Defaults vs DB)
+            let finalDaily = defaultDailyQuests;
+            let finalMain = defaultMainQuestSteps;
+            let finalWorld = defaultWorldQuests;
+            let needsConfigUpdate = false;
+            let configUpdates = { user_id: user.id };
 
-                    // Main Quests: Use DB if not null, otherwise default
-                    if (questConfig.main_quests_config !== null) {
-                        finalMain = questConfig.main_quests_config;
-                    } else {
-                        needsUpdate = true;
-                        updates.main_quests_config = defaultMainQuestSteps;
-                    }
+            if (questConfig) {
+                if (questConfig.daily_quests_config !== null) finalDaily = questConfig.daily_quests_config;
+                else { needsConfigUpdate = true; configUpdates.daily_quests_config = defaultDailyQuests; }
 
-                    // World Quests: Use DB if not null, otherwise default
-                    if (questConfig.world_quests_config !== null) {
-                        finalWorld = questConfig.world_quests_config;
-                    } else {
-                        needsUpdate = true;
-                        updates.world_quests_config = defaultWorldQuests;
-                    }
-                } else {
-                    // No row exists, seed everything
-                    needsUpdate = true;
-                    updates = {
-                        user_id: user.id,
-                        daily_quests_config: defaultDailyQuests,
-                        main_quests_config: defaultMainQuestSteps,
-                        world_quests_config: defaultWorldQuests
-                    };
-                }
+                if (questConfig.main_quests_config !== null) finalMain = questConfig.main_quests_config;
+                else { needsConfigUpdate = true; configUpdates.main_quests_config = defaultMainQuestSteps; }
 
-                // Apply updates if needed (Seeding defaults)
-                if (needsUpdate) {
-                    console.log("Seeding default quests to Supabase...");
-                    const { error: upsertError } = await supabase
-                        .from('user_quests')
-                        .upsert(updates);
-
-                    if (upsertError) console.error("Error seeding quests:", upsertError);
-                }
-
-                // Set state (normalize daily quests structure if needed)
-                const normalizedDaily = finalDaily.map(q => ({
-                    ...q,
-                    title: q.title || q.text || 'Новое задание',
-                    description: q.description || '',
-                    type: q.type || 'daily',
-                    rewards: q.rewards || { primogems: q.reward || 0 }
-                }));
-
-                setDailyQuests(normalizedDaily);
-                setMainQuestSteps(finalMain);
-                setWorldQuests(finalWorld);
-
-            } catch (error) {
-                console.error("Error fetching quest data:", error);
-            } finally {
-                setLoading(false);
+                if (questConfig.world_quests_config !== null) finalWorld = questConfig.world_quests_config;
+                else { needsConfigUpdate = true; configUpdates.world_quests_config = defaultWorldQuests; }
+            } else {
+                needsConfigUpdate = true;
+                configUpdates = {
+                    user_id: user.id,
+                    daily_quests_config: defaultDailyQuests,
+                    main_quests_config: defaultMainQuestSteps,
+                    world_quests_config: defaultWorldQuests
+                };
             }
-        };
 
-        fetchData();
+            // Normalize daily quests
+            const normalizedDaily = finalDaily.map(q => ({
+                ...q,
+                title: q.title || q.text || 'Новое задание',
+                description: q.description || '',
+                type: q.type || 'daily',
+                rewards: q.rewards || { primogems: q.reward || 0 }
+            }));
+
+            // 3. Handle Daily Reset
+            let currentCompletedQuests = gameState.completed_quests || [];
+            let currentSettings = gameState.settings || {};
+            let currentDailyRewardClaimed = currentSettings.daily_reward_claimed || false;
+            let currentCompensationClaimed = currentSettings.compensation_claimed || false;
+
+            const today = getMoscowDateString();
+            const lastReset = currentSettings.last_daily_reset;
+
+            if (lastReset !== today) {
+                console.log("Daily reset triggered!", { lastReset, today });
+
+                // Identify daily quest IDs to remove
+                const dailyIds = normalizedDaily.map(q => q.id);
+
+                // Filter out ONLY the current daily quests from completed list
+                currentCompletedQuests = currentCompletedQuests.filter(id => !dailyIds.includes(id));
+                currentDailyRewardClaimed = false;
+
+                // Update DB
+                await supabase
+                    .from('game_state')
+                    .update({
+                        completed_quests: currentCompletedQuests,
+                        settings: {
+                            ...currentSettings,
+                            last_daily_reset: today,
+                            daily_reward_claimed: false
+                        }
+                    })
+                    .eq('user_id', user.id);
+
+                // Update local settings object for state
+                currentSettings = {
+                    ...currentSettings,
+                    last_daily_reset: today,
+                    daily_reward_claimed: false
+                };
+            }
+
+            // 4. Update State
+            if (needsConfigUpdate) {
+                await supabase.from('user_quests').upsert(configUpdates);
+            }
+
+            setPrimogems(gameState.primogems || 0);
+            setWishes(gameState.wishes || 0);
+            setCompletedQuestIds(currentCompletedQuests);
+            setDailyRewardClaimed(currentDailyRewardClaimed);
+            setCompensationClaimed(currentCompensationClaimed);
+
+            setDailyQuests(normalizedDaily);
+            setMainQuestSteps(finalMain);
+            setWorldQuests(finalWorld);
+
+        } catch (error) {
+            console.error("Error fetching quest data:", error);
+        } finally {
+            setLoading(false);
+        }
     }, [user]);
+
+    // Initial fetch
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    // Periodic check for day change (every 1 minute)
+    useEffect(() => {
+        if (!user) return;
+
+        const intervalId = setInterval(() => {
+            const today = getMoscowDateString();
+            // We can't easily check 'lastReset' from state here without adding it as dependency,
+            // which might cause loops. Instead, we can just call fetchData which handles the check efficiently.
+            // Or better: check if local time is 00:00 (or just changed day locally)
+
+            // Simple approach: Just re-fetch/check every minute. 
+            // The overhead is low and ensures sync.
+            fetchData();
+        }, 60000);
+
+        return () => clearInterval(intervalId);
+    }, [fetchData, user]);
 
     // Determine current main quest step
     const currentMainQuestIndex = mainQuestSteps.findIndex(step => !completedQuestIds.includes(step.id));
