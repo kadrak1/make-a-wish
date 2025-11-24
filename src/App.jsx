@@ -16,7 +16,7 @@ import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Sh
 import bannerImage from './assets/images/banner.png';
 
 function Game() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading: authLoading } = useAuth();
   const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, loading: gachaLoading } = useGachaSystem();
   const {
     primogems,
@@ -190,6 +190,14 @@ function Game() {
       videoRef.current.play().catch(e => console.log("Play failed", e));
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#1a1a2e] flex items-center justify-center">
+        <Sparkles className="w-12 h-12 text-[#E3D7B6] animate-spin" />
+      </div>
+    );
+  }
 
   if (!user) {
     return <LoginScreen />;
