@@ -90,39 +90,70 @@ export const useQuestSystem = () => {
                     .eq('user_id', user.id)
                     .single();
 
+                // Prepare defaults
+                let finalDaily = defaultDailyQuests;
+                let finalMain = defaultMainQuestSteps;
+                let finalWorld = defaultWorldQuests;
+                let needsUpdate = false;
+                let updates = { user_id: user.id };
+
                 if (questConfig) {
-                    // Daily Quests
-                    if (questConfig.daily_quests_config && questConfig.daily_quests_config.length > 0) {
-                        const normalizedDaily = questConfig.daily_quests_config.map(q => ({
-                            ...q,
-                            title: q.title || q.text || 'Новое задание',
-                            description: q.description || '',
-                            type: q.type || 'daily',
-                            rewards: q.rewards || { primogems: q.reward || 0 }
-                        }));
-                        setDailyQuests(normalizedDaily);
+                    // Daily Quests: Use DB if not null, otherwise default
+                    if (questConfig.daily_quests_config !== null) {
+                        finalDaily = questConfig.daily_quests_config;
                     } else {
-                        setDailyQuests(defaultDailyQuests);
+                        needsUpdate = true;
+                        updates.daily_quests_config = defaultDailyQuests;
                     }
 
-                    // Main Quests
-                    if (questConfig.main_quests_config && questConfig.main_quests_config.length > 0) {
-                        setMainQuestSteps(questConfig.main_quests_config);
+                    // Main Quests: Use DB if not null, otherwise default
+                    if (questConfig.main_quests_config !== null) {
+                        finalMain = questConfig.main_quests_config;
                     } else {
-                        setMainQuestSteps(defaultMainQuestSteps);
+                        needsUpdate = true;
+                        updates.main_quests_config = defaultMainQuestSteps;
                     }
 
-                    // World Quests
-                    if (questConfig.world_quests_config && questConfig.world_quests_config.length > 0) {
-                        setWorldQuests(questConfig.world_quests_config);
+                    // World Quests: Use DB if not null, otherwise default
+                    if (questConfig.world_quests_config !== null) {
+                        finalWorld = questConfig.world_quests_config;
                     } else {
-                        setWorldQuests(defaultWorldQuests);
+                        needsUpdate = true;
+                        updates.world_quests_config = defaultWorldQuests;
                     }
                 } else {
-                    setDailyQuests(defaultDailyQuests);
-                    setMainQuestSteps(defaultMainQuestSteps);
-                    setWorldQuests(defaultWorldQuests);
+                    // No row exists, seed everything
+                    needsUpdate = true;
+                    updates = {
+                        user_id: user.id,
+                        daily_quests_config: defaultDailyQuests,
+                        main_quests_config: defaultMainQuestSteps,
+                        world_quests_config: defaultWorldQuests
+                    };
                 }
+
+                // Apply updates if needed (Seeding defaults)
+                if (needsUpdate) {
+                    console.log("Seeding default quests to Supabase...");
+                    const { error: upsertError } = await supabase
+                        .from('user_quests')
+                        .upsert(updates);
+
+                    if (upsertError) console.error("Error seeding quests:", upsertError);
+                }
+
+                // Set state (normalize daily quests structure if needed)
+                const normalizedDaily = finalDaily.map(q => ({
+                    ...q,
+                    title: q.title || q.text || 'Новое задание',
+                    description: q.description || '',
+                    type: q.type || 'daily',
+                    rewards: q.rewards || { primogems: q.reward || 0 }
+                }));
+
+                setDailyQuests(normalizedDaily);
+                setMainQuestSteps(finalMain);
+                setWorldQuests(finalWorld);
 
             } catch (error) {
                 console.error("Error fetching quest data:", error);
