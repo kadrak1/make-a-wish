@@ -90,6 +90,8 @@ export const useQuestSystem = () => {
                     .eq('user_id', user.id)
                     .single();
 
+                console.log("Quest Config Fetch Result:", { questConfig, questError, userId: user.id });
+
                 // Prepare defaults
                 let finalDaily = defaultDailyQuests;
                 let finalMain = defaultMainQuestSteps;
