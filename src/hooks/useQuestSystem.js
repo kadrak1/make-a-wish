@@ -148,35 +148,6 @@ export const useQuestSystem = () => {
         }
     }, [user]);
 
-    // Initial fetch
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // Periodic check for day change (every 1 minute)
-    useEffect(() => {
-        if (!user) return;
-
-        const intervalId = setInterval(() => {
-            const today = getMoscowDateString();
-            // We can't easily check 'lastReset' from state here without adding it as dependency,
-            // which might cause loops. Instead, we can just call fetchData which handles the check efficiently.
-            // Or better: check if local time is 00:00 (or just changed day locally)
-
-            // Simple approach: Just re-fetch/check every minute. 
-            // The overhead is low and ensures sync.
-            fetchData();
-        }, 60000);
-
-        return () => clearInterval(intervalId);
-    }, [fetchData, user]);
-
-    // Determine current main quest step
-    const currentMainQuestIndex = mainQuestSteps.findIndex(step => !completedQuestIds.includes(step.id));
-    const isMainQuestCompleted = currentMainQuestIndex === -1 && mainQuestSteps.every(step => completedQuestIds.includes(step.id));
-
-    const currentMainQuest = currentMainQuestIndex !== -1 ? mainQuestSteps[currentMainQuestIndex] : null;
-
     const mainQuestProgress = {
         current: currentMainQuestIndex !== -1 ? currentMainQuestIndex + 1 : mainQuestSteps.length,
         total: mainQuestSteps.length,
