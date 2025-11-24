@@ -422,7 +422,7 @@ function Game() {
           loop
           playsInline
           className="w-full h-full object-cover"
-          src="/videos/background.mp4"
+          src={`${import.meta.env.BASE_URL}videos/background.mp4`}
           onLoadedMetadata={(e) => {
             e.target.volume = isMuted ? 0 : volume;
           }}

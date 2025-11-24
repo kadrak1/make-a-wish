@@ -7,7 +7,7 @@ const VideoAnimation = ({ rarity, onComplete, volume = 0.5, isMuted = false, isA
 
     // Map rarity to video filenames
     // Assumes videos are in public/videos/ folder
-    const videoSrc = `/videos/wish-${rarity}.mp4`;
+    const videoSrc = `${import.meta.env.BASE_URL}videos/wish-${rarity}.mp4`;
 
     useEffect(() => {
         if (videoRef.current) {
