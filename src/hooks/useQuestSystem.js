@@ -148,6 +148,10 @@ export const useQuestSystem = () => {
         }
     }, [user]);
 
+    // Determine current main quest step
+    const currentMainQuestIndex = mainQuestSteps.findIndex(step => !completedQuestIds.includes(step.id));
+    const currentMainQuest = currentMainQuestIndex !== -1 ? mainQuestSteps[currentMainQuestIndex] : null;
+
     const mainQuestProgress = {
         current: currentMainQuestIndex !== -1 ? currentMainQuestIndex + 1 : mainQuestSteps.length,
         total: mainQuestSteps.length,
