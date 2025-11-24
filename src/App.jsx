@@ -9,6 +9,7 @@ import SettingsModal from './components/SettingsModal';
 import QuestJournal from './components/QuestJournal';
 import LoginScreen from './components/LoginScreen';
 import AdminPanel from './components/AdminPanel';
+import CompensationModal from './components/CompensationModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { supabase } from './supabaseClient';
 import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Shield } from 'lucide-react';
@@ -31,6 +32,8 @@ function Game() {
     consumePrimosForWish,
     dailyProgress,
     claimDailyReward,
+    compensationClaimed,
+    claimCompensation,
     loading: questLoading
   } = useQuestSystem();
 
@@ -38,6 +41,17 @@ function Game() {
   const [showResult, setShowResult] = useState(false);
   const [currentResult, setCurrentResult] = useState(null);
   const [showProposal, setShowProposal] = useState(false);
+  const [showCompensation, setShowCompensation] = useState(false);
+
+  // Show compensation modal if not claimed
+  useEffect(() => {
+    if (!questLoading && !compensationClaimed) {
+      const timer = setTimeout(() => {
+        setShowCompensation(true);
+      }, 1000); // Small delay for better UX
+      return () => clearTimeout(timer);
+    }
+  }, [questLoading, compensationClaimed]);
 
   // UI State
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
@@ -234,6 +248,16 @@ function Game() {
           onClose={() => setIsAdminOpen(false)}
         />
       )}
+
+      {/* Compensation Modal */}
+      <CompensationModal
+        isOpen={showCompensation}
+        onClose={() => setShowCompensation(false)}
+        onClaim={() => {
+          claimCompensation();
+          setShowCompensation(false);
+        }}
+      />
 
       {/* Wish Confirmation Modal */}
       {isWishConfirmOpen && (

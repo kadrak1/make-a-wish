@@ -17,6 +17,7 @@ export const useQuestSystem = () => {
     const [worldQuests, setWorldQuests] = useState(defaultWorldQuests);
 
     const [dailyRewardClaimed, setDailyRewardClaimed] = useState(false);
+    const [compensationClaimed, setCompensationClaimed] = useState(false);
     const [loading, setLoading] = useState(true);
 
     // Helper to get current Moscow date string (YYYY-MM-DD)
@@ -45,6 +46,7 @@ export const useQuestSystem = () => {
                 let currentCompletedQuests = gameState.completed_quests || [];
                 let currentSettings = gameState.settings || {};
                 let currentDailyRewardClaimed = currentSettings.daily_reward_claimed || false;
+                let currentCompensationClaimed = currentSettings.compensation_claimed || false;
 
                 // Check for daily reset
                 const today = getMoscowDateString();
@@ -81,6 +83,7 @@ export const useQuestSystem = () => {
                     setWishes(gameState.wishes || 0);
                     setCompletedQuestIds(currentCompletedQuests);
                     setDailyRewardClaimed(currentDailyRewardClaimed);
+                    setCompensationClaimed(currentCompensationClaimed);
                 }
 
                 // 2. Fetch Custom Quests Config
@@ -272,6 +275,40 @@ export const useQuestSystem = () => {
         }
     }, [dailyProgress, primogems, user]);
 
+    const claimCompensation = useCallback(async () => {
+        if (!compensationClaimed) {
+            const newPrimos = primogems + 40;
+            setCompensationClaimed(true); // Optimistic
+            setPrimogems(newPrimos);
+
+            try {
+                // Fetch current settings first
+                const { data: gameState } = await supabase
+                    .from('game_state')
+                    .select('settings')
+                    .eq('user_id', user.id)
+                    .single();
+
+                const currentSettings = gameState?.settings || {};
+
+                await supabase
+                    .from('game_state')
+                    .update({
+                        primogems: newPrimos,
+                        settings: {
+                            ...currentSettings,
+                            compensation_claimed: true
+                        }
+                    })
+                    .eq('user_id', user.id);
+            } catch (error) {
+                console.error("Error claiming compensation:", error);
+                setCompensationClaimed(false); // Revert
+                setPrimogems(primogems);
+            }
+        }
+    }, [compensationClaimed, primogems, user]);
+
     const buyWish = useCallback(async () => {
         if (primogems >= 160) {
             const newPrimos = primogems - 160;
@@ -313,8 +350,10 @@ export const useQuestSystem = () => {
         mainQuestProgress,
         worldQuests,
         dailyProgress,
+        compensationClaimed,
         completeQuest,
         claimDailyReward,
+        claimCompensation,
         buyWish,
         spendWish,
         consumePrimosForWish,
