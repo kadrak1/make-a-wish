@@ -56,13 +56,13 @@ const QuestItem = ({ quest, isCompleted, onComplete }) => {
                         <div className="flex gap-3">
                             {rewards.primogems && (
                                 <div className="flex items-center gap-1 text-xs bg-stone-200 px-2 py-1 rounded border border-black/5">
-                                    <Gem size={12} className="text-cyan-500" />
+                                    <img src="/images/rewards/primogems.png" alt="Primogems" className="w-4 h-4 object-contain" />
                                     <span className="text-gray-700 font-medium">{rewards.primogems}</span>
                                 </div>
                             )}
                             {rewards.mora && (
                                 <div className="flex items-center gap-1 text-xs bg-stone-200 px-2 py-1 rounded border border-black/5">
-                                    <Coins size={12} className="text-yellow-500" />
+                                    <img src="/images/rewards/mora.png" alt="Mora" className="w-4 h-4 object-contain" />
                                     <span className="text-gray-700 font-medium">{rewards.mora}</span>
                                 </div>
                             )}
@@ -73,7 +73,7 @@ const QuestItem = ({ quest, isCompleted, onComplete }) => {
                             )}
                             {rewards.wishes && (
                                 <div className="flex items-center gap-1 text-xs bg-stone-200 px-2 py-1 rounded border border-black/5">
-                                    <Star size={12} className="text-pink-500 fill-pink-500" />
+                                    <img src="/images/rewards/wishes.png" alt="Wishes" className="w-4 h-4 object-contain" />
                                     <span className="text-pink-700 font-medium">x{rewards.wishes}</span>
                                 </div>
                             )}

@@ -249,6 +249,73 @@ const AdminPanel = ({ isOpen, onClose }) => {
                                                 </div>
                                             </div>
                                         </div>
+                                    ) : activeTab === 'gifts' ? (
+                                        <div className="flex flex-col h-full gap-4">
+                                            {/* Image Upload Section */}
+                                            <div className="bg-[#0f3460] p-4 rounded-xl border border-[#E3D7B6]/20 flex items-center gap-4">
+                                                <div className="flex-1">
+                                                    <label className="block text-xs text-gray-400 mb-1">Upload Reward Image</label>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={async (e) => {
+                                                            const file = e.target.files[0];
+                                                            if (!file) return;
+
+                                                            setSaveStatus('Uploading...');
+                                                            try {
+                                                                const fileExt = file.name.split('.').pop();
+                                                                const fileName = `${Date.now()}.${fileExt}`;
+                                                                const filePath = `${fileName}`;
+
+                                                                const { error: uploadError } = await supabase.storage
+                                                                    .from('wish-rewards')
+                                                                    .upload(filePath, file);
+
+                                                                if (uploadError) {
+                                                                    // Try to create bucket if it doesn't exist (this might fail if no permissions)
+                                                                    if (uploadError.message.includes('bucket not found')) {
+                                                                        alert('Bucket "wish-rewards" not found. Please create it in Supabase Dashboard (Storage -> New Bucket -> Public).');
+                                                                    }
+                                                                    throw uploadError;
+                                                                }
+
+                                                                const { data: { publicUrl } } = supabase.storage
+                                                                    .from('wish-rewards')
+                                                                    .getPublicUrl(filePath);
+
+                                                                // Copy to clipboard
+                                                                navigator.clipboard.writeText(publicUrl);
+                                                                setSaveStatus('URL Copied to Clipboard!');
+                                                                setTimeout(() => setSaveStatus(''), 3000);
+                                                                alert(`Image uploaded! URL copied to clipboard:\n${publicUrl}`);
+
+                                                            } catch (error) {
+                                                                console.error('Upload error:', error);
+                                                                setSaveStatus('Upload Failed: ' + error.message);
+                                                            }
+                                                        }}
+                                                        className="block w-full text-sm text-gray-400
+                                                            file:mr-4 file:py-2 file:px-4
+                                                            file:rounded-full file:border-0
+                                                            file:text-xs file:font-semibold
+                                                            file:bg-[#E3D7B6] file:text-[#1a1a2e]
+                                                            hover:file:bg-[#d4c5a0]
+                                                            cursor-pointer"
+                                                    />
+                                                </div>
+                                                <div className="text-xs text-gray-500 max-w-[200px]">
+                                                    Upload an image to get a URL. The URL will be copied to your clipboard automatically.
+                                                </div>
+                                            </div>
+
+                                            <textarea
+                                                value={giftsConfig}
+                                                onChange={(e) => setGiftsConfig(e.target.value)}
+                                                className="flex-1 w-full bg-[#0f3460] text-gray-200 font-mono text-sm p-4 rounded-lg border border-[#E3D7B6]/20 focus:border-[#E3D7B6] focus:outline-none resize-none"
+                                                placeholder="Enter JSON configuration..."
+                                            />
+                                        </div>
                                     ) : (
                                         <textarea
                                             value={
