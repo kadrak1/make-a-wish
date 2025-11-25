@@ -17,7 +17,7 @@ import bannerImage from './assets/images/banner.png';
 
 function Game() {
   const { user, logout, loading: authLoading } = useAuth();
-  const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, loading: gachaLoading } = useGachaSystem();
+  const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, nextItem, loading: gachaLoading } = useGachaSystem();
   const {
     primogems,
     wishes,
@@ -153,6 +153,12 @@ function Game() {
 
   const confirmWish = () => {
     setIsWishConfirmOpen(false);
+
+    // Preload next item image
+    if (nextItem && nextItem.image) {
+      const img = new Image();
+      img.src = nextItem.image;
+    }
 
     if (wishes > 0) {
       spendWish();

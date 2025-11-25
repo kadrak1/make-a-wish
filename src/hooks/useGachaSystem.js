@@ -151,6 +151,7 @@ export const useGachaSystem = () => {
         currentPullIndex,
         totalPulls: 10,
         nextItemRarity: currentItem ? currentItem.rarity : null,
+        nextItem: currentItem,
         loading
     };
 };
