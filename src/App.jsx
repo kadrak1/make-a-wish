@@ -161,7 +161,7 @@ function Game() {
         img.src = nextItem.image;
       }
       // Preload global sound
-      const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.mp3');
+      const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.m4a');
       audio.load();
     }
 
@@ -185,7 +185,7 @@ function Game() {
       // Play global reward sound
       if (!isMuted) {
         try {
-          const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.mp3');
+          const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.m4a');
           audio.volume = volume;
           audio.play().catch(e => console.error("Error playing sound:", e));
         } catch (e) {
