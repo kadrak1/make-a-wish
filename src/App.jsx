@@ -154,10 +154,17 @@ function Game() {
   const confirmWish = () => {
     setIsWishConfirmOpen(false);
 
-    // Preload next item image
-    if (nextItem && nextItem.image) {
-      const img = new Image();
-      img.src = nextItem.image;
+    // Preload next item image and sound
+    if (nextItem) {
+      if (nextItem.image) {
+        const img = new Image();
+        img.src = nextItem.image;
+      }
+      if (nextItem.sound) {
+        const audio = new Audio();
+        audio.src = nextItem.sound;
+        audio.load();
+      }
     }
 
     if (wishes > 0) {
@@ -176,9 +183,26 @@ function Game() {
     if (item) {
       setCurrentResult(item);
       setShowResult(true);
+
+      // Play reward sound if available
+      if (item && item.sound && !isMuted) {
+        try {
+          const audio = new Audio(item.sound);
+          audio.volume = volume;
+          audio.play().catch(e => console.error("Error playing sound:", e));
+        } catch (e) {
+          console.error("Audio error:", e);
+        }
+      }
+    }
+
+    if (isFinished) {
+      setTimeout(() => {
+        setShowResult(false);
+        setShowProposal(true);
+      }, 2000);
     }
   };
-
   const handleDismissResult = () => {
     setShowResult(false);
     setCurrentResult(null);
