@@ -304,56 +304,7 @@ const AdminPanel = ({ isOpen, onClose }) => {
                                                 </div>
                                             </div>
 
-                                            {/* Sound Upload Section */}
-                                            <div className="bg-[#0f3460] p-4 rounded-xl border border-[#E3D7B6]/20 flex items-center gap-4">
-                                                <div className="flex-1">
-                                                    <label className="block text-xs text-gray-400 mb-1">Upload Reward Sound</label>
-                                                    <input
-                                                        type="file"
-                                                        accept="audio/*"
-                                                        onChange={async (e) => {
-                                                            const file = e.target.files[0];
-                                                            if (!file) return;
 
-                                                            setSaveStatus('Uploading Sound...');
-                                                            try {
-                                                                const fileExt = file.name.split('.').pop();
-                                                                const fileName = `snd_${Date.now()}.${fileExt}`;
-                                                                const filePath = `${fileName}`;
-
-                                                                const { error: uploadError } = await supabase.storage
-                                                                    .from('wish-rewards')
-                                                                    .upload(filePath, file);
-
-                                                                if (uploadError) throw uploadError;
-
-                                                                const { data: { publicUrl } } = supabase.storage
-                                                                    .from('wish-rewards')
-                                                                    .getPublicUrl(filePath);
-
-                                                                navigator.clipboard.writeText(publicUrl);
-                                                                setSaveStatus('Sound URL Copied!');
-                                                                setTimeout(() => setSaveStatus(''), 3000);
-                                                                alert(`Sound uploaded! URL copied:\n${publicUrl}`);
-
-                                                            } catch (error) {
-                                                                console.error('Upload error:', error);
-                                                                setSaveStatus('Upload Failed: ' + error.message);
-                                                            }
-                                                        }}
-                                                        className="block w-full text-sm text-gray-400
-                                                            file:mr-4 file:py-2 file:px-4
-                                                            file:rounded-full file:border-0
-                                                            file:text-xs file:font-semibold
-                                                            file:bg-[#E3D7B6] file:text-[#1a1a2e]
-                                                            hover:file:bg-[#d4c5a0]
-                                                            cursor-pointer"
-                                                    />
-                                                </div>
-                                                <div className="text-xs text-gray-500 max-w-[200px]">
-                                                    Upload audio (MP3/WAV). URL will be copied automatically.
-                                                </div>
-                                            </div>
 
                                             <textarea
                                                 value={giftsConfig}
