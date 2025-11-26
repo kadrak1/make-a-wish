@@ -186,8 +186,8 @@ function Game() {
       if (!isMuted) {
         try {
           const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.m4a');
-          // Boost volume by 50%, but max out at 1.0
-          audio.volume = Math.min(1.0, volume * 1.5);
+          // Boost volume significantly (2.5x), max out at 1.0
+          audio.volume = Math.min(1.0, volume * 2.5);
           audio.play().catch(e => console.error("Error playing sound:", e));
         } catch (e) {
           console.error("Audio error:", e);
