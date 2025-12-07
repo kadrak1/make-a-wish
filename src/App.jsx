@@ -102,14 +102,13 @@ function Game() {
   useEffect(() => {
     if (videoRef.current) {
       if (isAnimating || showResult) {
-        videoRef.current.volume = 0;
+        videoRef.current.pause();
       } else {
         videoRef.current.volume = isMuted ? 0 : volume;
+        videoRef.current.play().catch(error => {
+          console.log("Autoplay prevented by browser:", error);
+        });
       }
-      // Attempt to play immediately
-      videoRef.current.play().catch(error => {
-        console.log("Autoplay prevented by browser:", error);
-      });
     }
   }, [volume, isMuted, isAnimating, showResult]);
 
