@@ -130,7 +130,7 @@ export const useSharedQuests = (partnerId) => {
         if (quest.assigned_to !== user.id) return { success: false, error: "Это не ваш квест" };
 
         try {
-            // 1. Update status to 'claimed' to prevent double claim (DB constraint/check ideal but optimistic locking here)
+            // 1. Update status to 'claimed' to prevent double claim
             const { error: dbError } = await supabase
                 .from('shared_quests')
                 .update({ status: 'claimed' })
@@ -139,27 +139,35 @@ export const useSharedQuests = (partnerId) => {
 
             if (dbError) throw dbError;
 
-            // 2. Add gems using the updateGameState from useQuestSystem logic
-            // We can't use useQuestSystem's updateGameState directly if it's not exposed cleanly or we need to fetch fresh state.
-            // But lets try to do it manually here to be sure.
+            // 2. Add gems to the specific connection balance
+            // We need to know who is who in the connection logic.
+            // Simplified: We accept that 'permission' to update user_connections relies on RLS allowing update if auth.uid is involved.
+            // However, we need to know WHICH column to update.
+            // Since we know the partnerId, we can find the connection row.
 
-            // Re-fetch current gems to be safe or use local if confident
-            const { data: currentState, error: fetchError } = await supabase
-                .from('game_state')
-                .select('primogems')
-                .eq('user_id', user.id)
+            // Fetch the connection ID and determine role
+            const { data: connection, error: connError } = await supabase
+                .from('user_connections')
+                .select('id, user_id, linked_user_id, user_balance, linked_user_balance')
+                .or(`and(user_id.eq.${user.id},linked_user_id.eq.${partnerId}),and(user_id.eq.${partnerId},linked_user_id.eq.${user.id})`)
                 .single();
 
-            if (fetchError) throw fetchError;
+            if (connError) throw connError;
 
-            const newAmount = (currentState?.primogems || 0) + (quest.reward_primogems || 0);
+            const isUserIsInitiator = connection.user_id === user.id;
+            const columnToUpdate = isUserIsInitiator ? 'user_balance' : 'linked_user_balance';
+            const currentBalance = isUserIsInitiator ? connection.user_balance : connection.linked_user_balance;
+            const newBalance = (currentBalance || 0) + (quest.reward_primogems || 0);
 
             const { error: updateError } = await supabase
-                .from('game_state')
-                .update({ primogems: newAmount })
-                .eq('user_id', user.id);
+                .from('user_connections')
+                .update({ [columnToUpdate]: newBalance })
+                .eq('id', connection.id);
 
             if (updateError) throw updateError;
+
+            // Also update local state if needed via callback or let Realtime handle it (UserConnections hook should pick it up if we refresh)
+            // For now, return success.
 
             return { success: true };
         } catch (error) {

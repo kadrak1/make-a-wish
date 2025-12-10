@@ -90,7 +90,7 @@ const UserLinkManager = () => {
                         {pendingRequests.map(req => (
                             <div key={req.id} className="bg-white p-3 rounded-lg border border-orange-100 flex items-center justify-between shadow-sm">
                                 <span className="text-xs font-mono text-gray-600 truncate max-w-[150px]">
-                                    {req.user_id}
+                                    {req.user?.nickname || req.user_id}
                                 </span>
                                 <div className="flex gap-2">
                                     <button
@@ -122,7 +122,7 @@ const UserLinkManager = () => {
                             <div key={conn.id} className="text-sm text-gray-600 flex items-center gap-2">
                                 <div className="w-2 h-2 bg-green-500 rounded-full" />
                                 <span className="font-mono text-xs">
-                                    {conn.user_id === user.id ? conn.linked_user_id : conn.user_id}
+                                    {conn.partnerNickname || conn.partnerId}
                                 </span>
                             </div>
                         ))}

@@ -11,12 +11,19 @@ import LoginScreen from './components/LoginScreen';
 import AdminPanel from './components/AdminPanel';
 import CompensationModal from './components/CompensationModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { FriendProvider, useFriendContext } from './context/FriendContext';
+import FriendList from './components/FriendList';
+import MainChatWidget from './components/MainChatWidget';
 import { supabase } from './supabaseClient';
-import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Shield } from 'lucide-react';
+import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Shield, Gift } from 'lucide-react';
 import bannerImage from './assets/images/banner.png';
 
 function Game() {
   const { user, logout, loading: authLoading } = useAuth();
+  // Access Friend Context
+  const { selectedFriendId, activeConnection } = useFriendContext();
+
+  // Note: useQuestSystem is now context-aware and will return the correct primogems/wishes based on selectedFriendId
   const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, nextItem, loading: gachaLoading } = useGachaSystem();
   const {
     primogems,
@@ -338,7 +345,9 @@ function Game() {
 
           {/* User Info & Logout */}
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-[#E3D7B6] font-bold text-sm shadow-black drop-shadow-md">{user.nickname}</span>
+            <span className="text-[#E3D7B6] font-bold text-sm shadow-black drop-shadow-md">
+              {activeConnection ? `Пара: ${activeConnection.partnerNickname}` : user.nickname}
+            </span>
             <button onClick={logout} className="p-1 bg-red-500/20 rounded-full hover:bg-red-500/40 transition-colors" title="Выйти">
               <LogOut size={14} className="text-red-300" />
             </button>
@@ -367,9 +376,25 @@ function Game() {
           <div className="flex items-center gap-2 md:gap-3 bg-black/40 px-3 py-1 md:px-4 md:py-1 rounded-full border border-white/10 backdrop-blur-sm mt-1 md:mt-2">
             <span className="text-[10px] md:text-xs text-gray-300 uppercase tracking-wider">Гарант</span>
             <span className="font-bold text-white text-xs md:text-sm">
+              {/* Note: We might need to make Pity context-aware in GachaSystem too eventually. 
+                    For now, it displays global if not handled. But request said "pity counter specific for friend".
+                    useQuestSystem doesn't export pity. useGachaSystem currently uses global.
+                    For this iteration, we focus on Primos/Wishes which are injected. 
+                    TODO: Update GachaSystem for context pity. */}
               {currentPullIndex} / {totalPulls}
             </span>
           </div>
+
+          {/* Gift Counter (Only if friend selected) */}
+          {activeConnection && (
+            <div className="flex items-center gap-2 md:gap-3 bg-pink-500/20 px-3 py-1 md:px-4 md:py-1 rounded-full border border-pink-500/30 backdrop-blur-sm mt-1">
+              <span className="text-[10px] md:text-xs text-pink-200 uppercase tracking-wider">Подарки</span>
+              <div className="flex items-center gap-1">
+                <Gift size={12} className="text-pink-400" />
+                <span className="font-bold text-white text-xs md:text-sm">{activeConnection.gifts || 0}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quest Journal Button */}
@@ -474,6 +499,16 @@ function Game() {
 
       </div>
 
+      {/* Friend List (Bottom Left) */}
+      <div className="absolute bottom-4 left-4 z-50 animate-in slide-in-from-left duration-500">
+        <FriendList />
+      </div>
+
+      {/* Chat Widget (Bottom Right) */}
+      <div className="absolute bottom-4 right-4 z-50 animate-in slide-in-from-right duration-500">
+        <MainChatWidget />
+      </div>
+
       {/* Background Video (Always mounted to prevent reloading delay) */}
       <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isAnimating || showResult || showProposal ? 'opacity-0' : 'opacity-100'}`}>
         <video
@@ -499,7 +534,9 @@ function Game() {
 function App() {
   return (
     <AuthProvider>
-      <Game />
+      <FriendProvider>
+        <Game />
+      </FriendProvider>
     </AuthProvider>
   );
 }

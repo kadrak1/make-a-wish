@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { prizePools } from '../config/prizes';
 import { useAuth } from '../context/AuthContext';
+import { useFriendContext } from '../context/FriendContext';
 import { supabase } from '../supabaseClient';
 
 export const useGachaSystem = () => {
     const { user } = useAuth();
+    const { activeConnection, isGlobalContext, refreshConnections } = useFriendContext();
     const [queue, setQueue] = useState([]);
     const [history, setHistory] = useState([]);
     const [currentPullIndex, setCurrentPullIndex] = useState(0);
@@ -18,24 +20,59 @@ export const useGachaSystem = () => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const { data: gameState, error } = await supabase
-                    .from('game_state')
-                    .select('queue, history, pity_counter')
-                    .eq('user_id', user.id)
-                    .single();
+                if (isGlobalContext) {
+                    // Fetch Global Game State
+                    const { data: gameState, error } = await supabase
+                        .from('game_state')
+                        .select('queue, history, pity_counter')
+                        .eq('user_id', user.id)
+                        .single();
 
-                if (error) throw error;
+                    if (error) throw error;
 
-                if (gameState) {
-                    setQueue(gameState.queue || []);
-                    setHistory(gameState.history || []);
-                    setCurrentPullIndex(gameState.pity_counter || 0);
+                    if (gameState) {
+                        setQueue(gameState.queue || []);
+                        setHistory(gameState.history || []);
+                        setCurrentPullIndex(gameState.pity_counter || 0);
 
-                    // Check if finished based on queue length
-                    if (gameState.queue && gameState.queue.length > 0 && gameState.pity_counter >= gameState.queue.length) {
-                        setIsFinished(true);
+                        if (gameState.queue && gameState.queue.length > 0 && gameState.pity_counter >= gameState.queue.length) {
+                            setIsFinished(true);
+                        } else {
+                            setIsFinished(false);
+                        }
+                    }
+                } else {
+                    // Fetch Connection Gacha State
+                    if (!activeConnection) return;
+
+                    // We need to fetch the row again? Or trust activeConnection if it has these fields?
+                    // activeConnection from `useUserConnections` might not have history/queue updated yet 
+                    // if we just added columns and hook didn't fetch them.
+                    // Important: The `useUserConnections` hook needs to fetch `history` and `queue` too!
+                    // Let's assume we update `useUserConnections` next or fetch here directly.
+                    // Fetching directly here is safer for freshness.
+
+                    const { data: connectionData, error } = await supabase
+                        .from('user_connections')
+                        .select('history, queue, pity_counter')
+                        .eq('id', activeConnection.id)
+                        .single();
+
+                    if (error) throw error;
+
+                    if (connectionData) {
+                        setQueue(connectionData.queue || []);
+                        setHistory(connectionData.history || []);
+                        setCurrentPullIndex(connectionData.pity_counter || 0);
+
+                        if (connectionData.queue && connectionData.queue.length > 0 && connectionData.pity_counter >= connectionData.queue.length) {
+                            setIsFinished(true);
+                        } else {
+                            setIsFinished(false);
+                        }
                     }
                 }
+
             } catch (error) {
                 console.error("Error fetching gacha data:", error);
             } finally {
@@ -44,7 +81,7 @@ export const useGachaSystem = () => {
         };
 
         fetchData();
-    }, [user]);
+    }, [user, isGlobalContext, activeConnection?.id]); // Re-fetch when context changes
 
     // Initialize queue if empty (Rigged Logic)
     useEffect(() => {
@@ -82,12 +119,24 @@ export const useGachaSystem = () => {
             const finalQueue = [...firstNine, legendary];
 
             // Save to Supabase
+            // Note: Rigging logic generates a new queue. This applies to both contexts.
+
             setQueue(finalQueue);
             try {
-                await supabase
-                    .from('game_state')
-                    .update({ queue: finalQueue })
-                    .eq('user_id', user.id);
+                if (isGlobalContext) {
+                    await supabase
+                        .from('game_state')
+                        .update({ queue: finalQueue })
+                        .eq('user_id', user.id);
+                } else {
+                    if (activeConnection) {
+                        await supabase
+                            .from('user_connections')
+                            .update({ queue: finalQueue })
+                            .eq('id', activeConnection.id);
+                        refreshConnections();
+                    }
+                }
             } catch (error) {
                 console.error("Error saving initial queue:", error);
             }
@@ -104,12 +153,23 @@ export const useGachaSystem = () => {
         if (updates.pity_counter !== undefined) setCurrentPullIndex(updates.pity_counter);
 
         try {
-            const { error } = await supabase
-                .from('game_state')
-                .update(updates)
-                .eq('user_id', user.id);
+            if (isGlobalContext) {
+                const { error } = await supabase
+                    .from('game_state')
+                    .update(updates)
+                    .eq('user_id', user.id);
 
-            if (error) throw error;
+                if (error) throw error;
+            } else {
+                if (activeConnection) {
+                    const { error } = await supabase
+                        .from('user_connections')
+                        .update(updates)
+                        .eq('id', activeConnection.id);
+                    if (error) throw error;
+                    refreshConnections();
+                }
+            }
         } catch (error) {
             console.error("Error updating gacha state:", error);
         }

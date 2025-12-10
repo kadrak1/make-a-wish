@@ -98,7 +98,7 @@ const QuestJournal = ({
                                 onClick={() => setActiveTab(`partner_${conn.id}`)}
                                 className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap max-w-[150px] truncate ${activeTab === `partner_${conn.id}` ? 'bg-pink-500 text-white shadow-sm' : 'text-[#8E7C68] hover:bg-[#8E7C68]/10'}`}
                             >
-                                <Users size={14} /> Партнер
+                                <Users size={14} /> {conn.partnerNickname || conn.partnerId || 'Партнер'}
                             </button>
                         );
                     })}
@@ -233,7 +233,7 @@ const PartnerTabWrapper = ({ connection }) => {
     if (!user) return null;
 
     const partnerId = connection.user_id === user.id ? connection.linked_user_id : connection.user_id;
-    return <SharedQuestTab partnerId={partnerId} />;
+    return <SharedQuestTab partnerId={partnerId} myBalance={connection.myBalance} />;
 };
 
 

@@ -21,13 +21,49 @@ export const useUserConnections = () => {
                     status,
                     created_at,
                     user_id,
-                    linked_user_id
+                    linked_user_id,
+                    user:user_id(nickname),
+                    linked_user:linked_user_id(nickname),
+                    user_balance,
+                    linked_user_balance,
+                    wishes_balance,
+                    pity_counter,
+                    gifts_received
                 `)
                 .or(`user_id.eq.${user.id},linked_user_id.eq.${user.id}`)
                 .eq('status', 'accepted');
 
             if (error) throw error;
-            setConnections(data);
+
+            // Normalize connections to always have a 'partner' field
+            const normalizedConnections = data.map(conn => {
+                const isInitiator = conn.user_id === user.id;
+                return {
+                    ...conn,
+                    partner: isInitiator ? conn.linked_user : conn.user,
+                    partnerId: isInitiator ? conn.linked_user_id : conn.user_id,
+                    partnerNickname: isInitiator ? conn.linked_user?.nickname : conn.user?.nickname,
+                    myBalance: isInitiator ? conn.user_balance : conn.linked_user_balance,
+                    partnerBalance: isInitiator ? conn.linked_user_balance : conn.user_balance,
+                    // These are shared/single fields for the connection in this simple model, 
+                    // or do we want specific columns? 
+                    // The schema added them as single columns for the connection rows.
+                    // Implementation plan said: add to user_connections. 
+                    // Logic: If I am friend A, and I select Friend B, I see "OUR" wishes balance?
+                    // User Request: "Для каждого друга должно быть свое состояние баланса ... и круток"
+                    // Ideally, "My stats with Friend B".
+                    // Since the columns are on the `user_connections` table, they belong to the RELATIONSHIP.
+                    // So both see the same Pity Counter? That might be intended for "Partner Gacha".
+                    // Or did we want discrete columns?
+                    // The prompt says "balance of primogems and wishes... gift counter".
+                    // Let's assume shared for the pair for now as they are on the link table.
+                    wishes: conn.wishes_balance,
+                    pity: conn.pity_counter,
+                    gifts: conn.gifts_received
+                };
+            });
+
+            setConnections(normalizedConnections);
 
         } catch (err) {
             console.error('Error fetching connections:', err);
@@ -43,7 +79,10 @@ export const useUserConnections = () => {
             // Fetch requests sent TO the user (incoming)
             const { data, error } = await supabase
                 .from('user_connections')
-                .select('*')
+                .select(`
+                    *,
+                    user:user_id(nickname)
+                `)
                 .eq('linked_user_id', user.id)
                 .eq('status', 'pending');
 
@@ -71,12 +110,19 @@ export const useUserConnections = () => {
                 return { success: false, error: "Нельзя добавить самого себя" };
             }
 
-            console.log("Using RPC to link users:", { myId: user.id, targetId: targetUserId });
+            console.log("Using RPC to link users (No Auth Mode):", { myId: user.id, targetId: targetUserId });
 
+            // We pass user.id explicitly because we are not using Supabase Auth
             const { data, error } = await supabase
-                .rpc('send_friend_request', { target_user_id: targetUserId });
+                .rpc('send_friend_request', {
+                    sender_id: user.id,
+                    target_user_id: targetUserId
+                });
 
-            if (error) throw error;
+            if (error) {
+                console.error("RPC Error:", error);
+                throw error;
+            }
 
             console.log("RPC Result:", data);
 

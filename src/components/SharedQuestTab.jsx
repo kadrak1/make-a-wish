@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Plus, Shield, Sword, LayoutDashboard } from 'lucide-react';
 import { useSharedQuests } from '../hooks/useSharedQuests';
-import ChatComponent from './ChatComponent';
 import SharedQuestItem from './SharedQuestItem';
 
-const SharedQuestTab = ({ partnerId }) => {
+const SharedQuestTab = ({ partnerId, myBalance = 0 }) => {
     const {
         questsByMe,
         questsForMe,
@@ -41,6 +40,15 @@ const SharedQuestTab = ({ partnerId }) => {
 
     return (
         <div className="space-y-4 pb-20 md:pb-0">
+            {/* Balance Display */}
+            <div className="bg-[#8E7C68] text-white px-4 py-2 rounded-xl flex items-center justify-between shadow-md mx-1">
+                <span className="text-xs font-bold uppercase tracking-widest text-white/80">Баланс пары</span>
+                <div className="flex items-center gap-1">
+                    <span className="font-mono text-lg font-bold">{myBalance}</span>
+                    <div className="w-4 h-4 bg-white/20 rotate-45 transform" /> {/* Placeholder gem icon */}
+                </div>
+            </div>
+
             {/* Navigation Pills */}
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
                 <button
@@ -56,13 +64,6 @@ const SharedQuestTab = ({ partnerId }) => {
                 >
                     <Shield size={14} />
                     Управление ({pendingVerificationCount})
-                </button>
-                <button
-                    onClick={() => setViewMode('chat')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${viewMode === 'chat' ? 'bg-[#8E7C68] text-white border-[#8E7C68]' : 'bg-white text-[#8E7C68] border-[#E3D7B6]'}`}
-                >
-                    <LayoutDashboard size={14} />
-                    Чат
                 </button>
             </div>
 
@@ -161,12 +162,7 @@ const SharedQuestTab = ({ partnerId }) => {
                             </div>
                         )}
 
-                        {/* VIEW: CHAT */}
-                        {viewMode === 'chat' && (
-                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-                                <ChatComponent partnerId={partnerId} />
-                            </div>
-                        )}
+                        {/* VIEW: MANAGE (Created By Me) */}
                     </>
                 )}
             </div>

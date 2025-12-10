@@ -4,11 +4,23 @@ import { mainQuestSteps as defaultMainQuestSteps } from '../config/quests/main';
 import { worldQuests as defaultWorldQuests } from '../config/quests/world';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import { useFriendContext } from '../context/FriendContext';
 
 export const useQuestSystem = () => {
     const { user } = useAuth();
-    const [primogems, setPrimogems] = useState(0);
-    const [wishes, setWishes] = useState(0);
+    const { activeConnection, isGlobalContext, refreshConnections } = useFriendContext();
+
+    // Global State (Backup)
+    const [globalPrimogems, setGlobalPrimogems] = useState(0);
+    const [globalWishes, setGlobalWishes] = useState(0);
+
+    // Derived State based on Context
+    const primogems = isGlobalContext ? globalPrimogems : (activeConnection?.myBalance || 0);
+    const wishes = isGlobalContext ? globalWishes : (activeConnection?.wishes || 0);
+
+    // We also need to handle Pity if we want it separate. 
+    // Assuming GachaSystem handles Pity, we might need to export it or pass it. 
+    // For now, let's just make sure Primogems and Wishes switch.
     const [completedQuestIds, setCompletedQuestIds] = useState([]);
 
     // State for quests to allow dynamic updates from DB
@@ -83,8 +95,8 @@ export const useQuestSystem = () => {
                 }
 
                 if (gameState) {
-                    setPrimogems(gameState.primogems || 0);
-                    setWishes(gameState.wishes || 0);
+                    setGlobalPrimogems(gameState.primogems || 0);
+                    setGlobalWishes(gameState.wishes || 0);
                     setCompletedQuestIds(currentCompletedQuests);
                     setDailyRewardClaimed(currentDailyRewardClaimed);
                     setCompensationClaimed(currentCompensationClaimed);
@@ -214,21 +226,55 @@ export const useQuestSystem = () => {
     const updateGameState = async (updates) => {
         if (!user) return;
 
-        // Optimistic update
-        if (updates.primogems !== undefined) setPrimogems(updates.primogems);
-        if (updates.wishes !== undefined) setWishes(updates.wishes);
-        if (updates.completed_quests !== undefined) setCompletedQuestIds(updates.completed_quests);
+        // Optimistic update for UI
+        if (updates.primogems !== undefined) {
+            if (isGlobalContext) setGlobalPrimogems(updates.primogems);
+            // Note: For active connection, we depend on refreshConnections or local hack if needed, 
+            // but ideally we should update the valid state source.
+        }
+        if (updates.wishes !== undefined) {
+            if (isGlobalContext) setGlobalWishes(updates.wishes);
+        }
+        if (updates.completed_quests !== undefined && isGlobalContext) setCompletedQuestIds(updates.completed_quests);
+
 
         try {
-            const { error } = await supabase
-                .from('game_state')
-                .update(updates)
-                .eq('user_id', user.id);
+            if (isGlobalContext) {
+                // Update Global Game State
+                const { error } = await supabase
+                    .from('game_state')
+                    .update(updates)
+                    .eq('user_id', user.id);
+                if (error) throw error;
+            } else {
+                // Update Connection State
+                // Map fields: primogems -> user_balance (or linked), wishes -> wishes_balance
+                if (!activeConnection) return;
 
-            if (error) throw error;
+                const dbUpdates = {};
+                // Determine which balance column is mine
+                const isInitiator = activeConnection.user_id === user.id;
+                const balanceCol = isInitiator ? 'user_balance' : 'linked_user_balance';
+
+                if (updates.primogems !== undefined) dbUpdates[balanceCol] = updates.primogems;
+                if (updates.wishes !== undefined) dbUpdates.wishes_balance = updates.wishes;
+
+                // What about quests? Completed quests for a connection might not be stored yet.
+                // Ignoring quests for connection context for now unless specific req.
+
+                const { error } = await supabase
+                    .from('user_connections')
+                    .update(dbUpdates)
+                    .eq('id', activeConnection.id);
+
+                if (error) throw error;
+
+                // Trigger refresh
+                refreshConnections();
+            }
+
         } catch (error) {
-            console.error("Error updating game state:", error);
-            // Revert changes? For now, just log.
+            console.error("Error updating state:", error);
         }
     };
 
