@@ -1,12 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
-import { useQuestSystem } from './useQuestSystem';
 
 export const useSharedQuests = (partnerId) => {
     const { user } = useAuth();
-    // specific hook to update local balance
-    const { updateGameState, primogems } = useQuestSystem();
 
     const [questsByMe, setQuestsByMe] = useState([]); // Quests I created
     const [questsForMe, setQuestsForMe] = useState([]); // Quests assigned to me

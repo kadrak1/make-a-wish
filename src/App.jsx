@@ -157,7 +157,7 @@ function Game() {
     setIsWishConfirmOpen(true);
   };
 
-  const confirmWish = () => {
+  const confirmWish = async () => {
     setIsWishConfirmOpen(false);
 
     // Preload next item image and sound
@@ -174,7 +174,7 @@ function Game() {
     if (wishes > 0) {
       spendWish();
       setIsAnimating(true);
-    } else if (consumePrimosForWish()) {
+    } else if (await consumePrimosForWish()) {
       // If no wishes but enough primos, auto-convert and wish
       setIsAnimating(true);
     }
@@ -212,7 +212,7 @@ function Game() {
     setShowResult(false);
     setCurrentResult(null);
 
-    if (currentResult && currentResult.rarity === 'legendary') {
+    if (currentResult && currentResult.rarity === 'legendary' && !showProposal) {
       setShowProposal(true);
     }
   };
