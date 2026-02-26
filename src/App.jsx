@@ -10,12 +10,11 @@ import QuestJournal from './components/QuestJournal';
 import LoginScreen from './components/LoginScreen';
 import AdminPanel from './components/AdminPanel';
 import CompensationModal from './components/CompensationModal';
+import FriendsModal from './components/FriendsModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FriendProvider, useFriendContext } from './context/FriendContext';
-import FriendList from './components/FriendList';
-import MainChatWidget from './components/MainChatWidget';
 import { supabase } from './supabaseClient';
-import { Sparkles, Volume2, VolumeX, Gem, Book, Star, Plus, Settings, LogOut, Shield, Gift } from 'lucide-react';
+import { Sparkles, Volume2, VolumeX, Star, Book, Plus, Settings, LogOut, Shield, Gift, Users, Briefcase } from 'lucide-react';
 import bannerImage from './assets/images/banner.png';
 
 function Game() {
@@ -34,6 +33,8 @@ function Game() {
     worldQuests,
     completedQuestIds,
     completeQuest,
+    deleteSystemQuest,
+    completeWorldQuest,
     buyWish,
     spendWish,
     consumePrimosForWish,
@@ -63,6 +64,8 @@ function Game() {
   // UI State
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isQuestJournalOpen, setIsQuestJournalOpen] = useState(false);
+  const [questJournalTab, setQuestJournalTab] = useState('all');
+  const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
@@ -149,7 +152,7 @@ function Game() {
   const handleWishClick = () => {
     if (isAnimating || showResult || showProposal) return;
 
-    if (wishes === 0 && primogems < 160) {
+    if (wishes === 0 && primogems < 100) {
       alert("Не хватает Молитв или Камней Истока! Выполняй задания, чтобы получить больше.");
       return;
     }
@@ -256,7 +259,7 @@ function Game() {
       <Inventory
         items={history}
         isOpen={isInventoryOpen}
-        onToggle={() => setIsInventoryOpen(!isInventoryOpen)}
+        onClose={() => setIsInventoryOpen(false)}
       />
 
       {/* Quest Journal Modal */}
@@ -269,8 +272,11 @@ function Game() {
         worldQuests={worldQuests}
         completedQuestIds={completedQuestIds}
         onCompleteQuest={completeQuest}
+        onDeleteQuest={deleteSystemQuest}
+        onCompleteWorldQuest={completeWorldQuest}
         dailyProgress={dailyProgress}
         onClaimDailyReward={claimDailyReward}
+        initialTab={questJournalTab}
       />
 
       {/* Settings Modal */}
@@ -282,6 +288,12 @@ function Game() {
         isMuted={isMuted}
         setIsMuted={setIsMuted}
         onResetData={handleResetData}
+      />
+
+      {/* Friends Modal */}
+      <FriendsModal
+        isOpen={isFriendsOpen}
+        onClose={() => setIsFriendsOpen(false)}
       />
 
       {/* Admin Panel */}
@@ -315,7 +327,7 @@ function Game() {
 
             <div className="p-4 md:p-6 text-center">
               <p className="text-[#8E7C68] text-base md:text-lg mb-6 font-medium">
-                Потратить 1 Молитву?
+                Потратить {wishes > 0 ? "1 Молитву" : "100 Камней Истока"}?
               </p>
 
               <div className="flex justify-center gap-3 md:gap-4">
@@ -338,10 +350,10 @@ function Game() {
       )}
 
       {/* Main Content Area */}
-      <div className={`relative z-10 flex flex-col items-center justify-center min-h-screen p-4 transition-all duration-500 ${isInventoryOpen ? 'md:pl-64' : ''}`}>
+      <div className={`relative z-10 flex flex-col items-center justify-center min-h-screen p-4 transition-all duration-500`}>
 
         {/* Top Bar: Resources & Counter */}
-        <div className="absolute top-4 right-4 md:top-8 md:right-8 flex flex-col items-end gap-2 z-50">
+        <div className="absolute top-2 right-4 md:top-4 md:right-8 flex flex-col items-end gap-1 z-50">
 
           {/* User Info & Logout */}
           <div className="flex items-center gap-2 mb-2">
@@ -355,24 +367,9 @@ function Game() {
 
           {/* Primogems */}
           <div className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
-            <Gem size={16} className="md:w-[18px] md:h-[18px] text-cyan-400 fill-cyan-400 drop-shadow-md" />
+            <Star size={16} className="md:w-[18px] md:h-[18px] text-cyan-400 fill-cyan-400 drop-shadow-md" />
             <span className="font-bold text-[#8E7C68] text-xs md:text-sm">{primogems}</span>
           </div>
-
-          {/* Wishes */}
-          <div className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
-            <Star size={16} className="md:w-[18px] md:h-[18px] text-pink-400 fill-pink-400 drop-shadow-md" />
-            <span className="font-bold text-[#8E7C68] text-xs md:text-sm">{wishes}</span>
-            <button
-              onClick={buyWish}
-              className="ml-1 md:ml-2 p-0.5 bg-[#E3D7B6] rounded-full text-white hover:bg-[#d4c4a0] active:scale-95 transition-all"
-              title="Обменять 160 Камней Истока на 1 Молитву"
-            >
-              <Plus size={10} className="md:w-[12px] md:h-[12px]" />
-            </button>
-          </div>
-
-          {/* Pity Counter */}
           <div className="flex items-center gap-2 md:gap-3 bg-black/40 px-3 py-1 md:px-4 md:py-1 rounded-full border border-white/10 backdrop-blur-sm mt-1 md:mt-2">
             <span className="text-[10px] md:text-xs text-gray-300 uppercase tracking-wider">Гарант</span>
             <span className="font-bold text-white text-xs md:text-sm">
@@ -398,21 +395,37 @@ function Game() {
         </div>
 
         {/* Quest Journal Button */}
-        <div className="absolute top-4 left-4 md:top-8 md:left-8 z-40 flex gap-2 md:gap-4">
-          <button
-            onClick={() => setIsQuestJournalOpen(true)}
-            className="group relative p-2 md:p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
-            title="Журнал заданий"
-          >
-            <Book size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
-          </button>
-
+        <div className="absolute top-2 left-4 md:top-4 md:left-8 z-40 flex gap-2 md:gap-4">
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="group relative p-2 md:p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
             title="Настройки"
           >
             <Settings size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
+          </button>
+
+          <button
+            onClick={() => setIsFriendsOpen(true)}
+            className="group relative p-2 md:p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+            title="Друзья"
+          >
+            <Users size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
+          </button>
+
+          <button
+            onClick={() => setIsInventoryOpen(true)}
+            className="group relative p-2 md:p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+            title="Инвентарь"
+          >
+            <Briefcase size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
+          </button>
+
+          <button
+            onClick={() => { setQuestJournalTab('all'); setIsQuestJournalOpen(true); }}
+            className="group relative p-2 md:p-3 bg-[#F4F4F5] rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20 hover:scale-110 transition-all duration-300"
+            title="Журнал заданий"
+          >
+            <Book size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
           </button>
 
           {/* Admin Button */}
@@ -429,7 +442,7 @@ function Game() {
 
         {/* Banner & Wish Button Container */}
         {!showProposal && !isAnimating && !showResult && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] w-full max-w-[1362px] aspect-[2.4/1] px-4 md:px-0 group transition-all duration-500">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[1362px] aspect-[2.4/1] px-4 md:px-0 group transition-all duration-500">
 
             {/* Banner Image (Clickable) */}
             <div
@@ -447,17 +460,17 @@ function Game() {
             <div className="absolute -bottom-4 -right-0 md:-bottom-6 md:-right-6 z-20 scale-75 md:scale-100 origin-bottom-right pr-4 md:pr-0">
               <button
                 onClick={handleWishClick}
-                disabled={wishes === 0 && primogems < 160}
-                className={`group/btn relative px-12 py-3 rounded-full border-[3px] border-[#E3D7B6] transition-all duration-300 shadow-xl shadow-black/40 flex items-center gap-3 ${wishes > 0 || primogems >= 160
+                disabled={wishes === 0 && primogems < 100}
+                className={`group/btn relative px-12 py-3 rounded-full border-[3px] border-[#E3D7B6] transition-all duration-300 shadow-xl shadow-black/40 flex items-center gap-3 ${wishes > 0 || primogems >= 100
                   ? 'bg-[#F4F4F5] hover:scale-105 hover:-translate-y-1 cursor-pointer'
                   : 'bg-gray-200 grayscale cursor-not-allowed opacity-80'
                   }`}
               >
                 <div className="flex flex-col items-center leading-none">
-                  <span className="text-[#8E7C68] font-bold text-xl tracking-widest mb-0.5">МОЛИТВА x1</span>
+                  <span className="text-[#8E7C68] font-bold text-xl tracking-widest mb-0.5">МОЛИТВА</span>
                   <div className="flex items-center gap-1">
-                    <Star size={14} className="text-pink-400 fill-pink-400" />
-                    <span className="text-[#8E7C68] font-bold text-xs">x 1</span>
+                    <Star size={14} className="text-cyan-400 fill-cyan-400" />
+                    <span className="text-[#8E7C68] font-bold text-xs">x 100</span>
                   </div>
                 </div>
 
@@ -499,15 +512,7 @@ function Game() {
 
       </div>
 
-      {/* Friend List (Bottom Left) */}
-      <div className="absolute bottom-4 left-4 z-50 animate-in slide-in-from-left duration-500">
-        <FriendList />
-      </div>
 
-      {/* Chat Widget (Bottom Right) */}
-      <div className="absolute bottom-4 right-4 z-50 animate-in slide-in-from-right duration-500">
-        <MainChatWidget />
-      </div>
 
       {/* Background Video (Always mounted to prevent reloading delay) */}
       <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isAnimating || showResult || showProposal ? 'opacity-0' : 'opacity-100'}`}>

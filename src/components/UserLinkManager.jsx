@@ -44,7 +44,7 @@ const UserLinkManager = () => {
                 <div className="mb-4">
                     <label className="text-xs text-gray-500 mb-1 block">Ваш ID (отправьте партнеру):</label>
                     <div className="flex gap-2">
-                        <code className="flex-1 bg-black/5 p-2 rounded text-xs font-mono truncate select-all">
+                        <code className="flex-1 bg-black/5 p-2 rounded text-xs font-mono truncate select-all text-gray-800">
                             {user?.id}
                         </code>
                         <button onClick={copyMyId} className="p-2 bg-[#E3D7B6] rounded text-[#8E7C68] hover:bg-[#d4c5a3]">
@@ -61,7 +61,7 @@ const UserLinkManager = () => {
                             value={targetId}
                             onChange={(e) => setTargetId(e.target.value)}
                             placeholder="Вставьте ID партнера"
-                            className="flex-1 bg-white border border-[#E3D7B6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8E7C68]"
+                            className="flex-1 bg-white border border-[#E3D7B6] rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#8E7C68]"
                         />
                         <button
                             type="submit"

@@ -83,23 +83,56 @@ export const useGachaSystem = () => {
         fetchData();
     }, [user, isGlobalContext, activeConnection?.id]); // Re-fetch when context changes
 
-    // Initialize queue if empty (Rigged Logic)
+    // Initialize queue if empty (Rigged Logic using Partner Gifts)
     useEffect(() => {
         if (!user || loading) return;
 
         const initQueue = async () => {
             if (queue.length > 0) return; // Already initialized
 
-            const commons = [...prizePools.common];
-            const epics = [...prizePools.epic];
-            const legendary = prizePools.legendary[0];
+            let commons = [];
+            let epics = [];
+            let legendary = null;
+
+            if (isGlobalContext) {
+                // Fallback for global context if needed, or keep empty
+                // For now, let's keep it empty or use a default if you want 
+                // but the prompt asked for Partner Gifts.
+                return;
+            } else {
+                if (!activeConnection) return;
+
+                // Fetch gifts created by the PARTNER for ME
+                const { data: partnerGifts, error } = await supabase
+                    .from('partner_gifts')
+                    .select('*')
+                    .eq('created_by', activeConnection.linked_user_id)
+                    .eq('assigned_to', user.id);
+
+                if (error) {
+                    console.error("Error fetching partner gifts for gacha:", error);
+                    return;
+                }
+
+                if (!partnerGifts || partnerGifts.length === 0) {
+                    console.log("No gifts created by partner yet.");
+                    return;
+                }
+
+                commons = partnerGifts.filter(g => g.rarity === 'common');
+                epics = partnerGifts.filter(g => g.rarity === 'epic');
+                const legendaries = partnerGifts.filter(g => g.rarity === 'legendary');
+                legendary = legendaries.length > 0 ? legendaries[0] : null;
+            }
 
             // Rigged logic: 6 commons, 3 epics, 1 legendary
+            // If not enough, we just take all we have and shuffle
             const getRandomItems = (arr, n) => {
+                if (arr.length === 0) return [];
                 const result = [];
                 const tempArr = [...arr];
                 for (let i = 0; i < n; i++) {
-                    if (tempArr.length === 0) tempArr.push(...arr);
+                    if (tempArr.length === 0) break;
                     const randomIndex = Math.floor(Math.random() * tempArr.length);
                     result.push(tempArr[randomIndex]);
                     tempArr.splice(randomIndex, 1);
@@ -110,16 +143,16 @@ export const useGachaSystem = () => {
             const selectedCommons = getRandomItems(commons, 6);
             const selectedEpics = getRandomItems(epics, 3);
 
-            const firstNine = [...selectedCommons, ...selectedEpics];
-            for (let i = firstNine.length - 1; i > 0; i--) {
+            const firstPart = [...selectedCommons, ...selectedEpics];
+            // Shuffle the first part
+            for (let i = firstPart.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [firstNine[i], firstNine[j]] = [firstNine[j], firstNine[i]];
+                [firstPart[i], firstPart[j]] = [firstPart[j], firstPart[i]];
             }
 
-            const finalQueue = [...firstNine, legendary];
+            const finalQueue = legendary ? [...firstPart, legendary] : firstPart;
 
-            // Save to Supabase
-            // Note: Rigging logic generates a new queue. This applies to both contexts.
+            if (finalQueue.length === 0) return;
 
             setQueue(finalQueue);
             try {
@@ -143,7 +176,7 @@ export const useGachaSystem = () => {
         };
 
         initQueue();
-    }, [user, loading, queue.length]);
+    }, [user, loading, queue.length, activeConnection?.id, isGlobalContext]);
 
     const updateGameState = async (updates) => {
         if (!user) return;

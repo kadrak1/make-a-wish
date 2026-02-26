@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
@@ -7,11 +7,20 @@ export const useChat = (partnerId) => {
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(true);
 
+    const markAsRead = useCallback(async () => {
+        if (!user || !partnerId) return;
+        await supabase
+            .from('messages')
+            .update({ is_read: true })
+            .eq('sender_id', partnerId)
+            .eq('receiver_id', user.id)
+            .eq('is_read', false);
+    }, [user, partnerId]);
+
     const fetchMessages = useCallback(async () => {
         if (!user || !partnerId) return;
         setLoading(true);
         try {
-            // Fetch messages between user and partner
             const { data, error } = await supabase
                 .from('messages')
                 .select('*')
@@ -21,16 +30,17 @@ export const useChat = (partnerId) => {
 
             if (error) throw error;
             setMessages(data);
+            // Mark incoming as read when chat opens
+            await markAsRead();
         } catch (error) {
             console.error("Error fetching messages:", error);
         } finally {
             setLoading(false);
         }
-    }, [user, partnerId]);
+    }, [user, partnerId, markAsRead]);
 
     useEffect(() => {
         fetchMessages();
-
         if (!user || !partnerId) return;
 
         const subscription = supabase
@@ -39,28 +49,27 @@ export const useChat = (partnerId) => {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'messages',
-                filter: `receiver_id=eq.${user.id}` // Listen for incoming
+                filter: `receiver_id=eq.${user.id}`
             }, (payload) => {
                 if (payload.new.sender_id === partnerId) {
                     setMessages(prev => [...prev, payload.new]);
+                    markAsRead(); // mark as read since chat is open
                 }
             })
             .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'messages',
-                filter: `sender_id=eq.${user.id}` // Listen for outgoing (from other tabs)
+                filter: `sender_id=eq.${user.id}`
             }, (payload) => {
                 if (payload.new.receiver_id === partnerId) {
-                    setMessages(prev => [...prev, payload.new]); // Append my own message if not already there
+                    setMessages(prev => [...prev, payload.new]);
                 }
             })
             .subscribe();
 
-        return () => {
-            supabase.removeChannel(subscription);
-        };
-    }, [user, partnerId, fetchMessages]);
+        return () => supabase.removeChannel(subscription);
+    }, [user, partnerId, fetchMessages, markAsRead]);
 
     const sendMessage = async (content) => {
         if (!content.trim()) return;
@@ -73,19 +82,11 @@ export const useChat = (partnerId) => {
                     content,
                     is_read: false
                 }]);
-
             if (error) throw error;
-            // Optimistic update done by subscription usually, but we can also do it here if needed. 
-            // Subscription is safer for sync.
         } catch (error) {
             console.error("Error sending message:", error);
         }
     };
 
-    return {
-        messages,
-        loading,
-        sendMessage,
-        refresh: fetchMessages
-    };
+    return { messages, loading, sendMessage, markAsRead, refresh: fetchMessages };
 };

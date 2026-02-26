@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Wrench, Gem } from 'lucide-react';
+import { X, Wrench, Star } from 'lucide-react';
 
 const CompensationModal = ({
     isOpen,
@@ -39,7 +39,7 @@ const CompensationModal = ({
                     {/* Reward */}
                     <div className="flex justify-center">
                         <div className="bg-[#EAE5D5] border border-[#E3D7B6] rounded-lg p-4 flex flex-col items-center gap-2 min-w-[120px]">
-                            <Gem size={32} className="text-cyan-400 fill-cyan-400 drop-shadow-md" />
+                            <Star size={32} className="text-cyan-400 fill-cyan-400 drop-shadow-md" />
                             <span className="text-[#8E7C68] font-bold text-lg">x 40</span>
                         </div>
                     </div>

@@ -13,7 +13,7 @@ export const useUserConnections = () => {
         if (!user) return;
         setLoading(true);
         try {
-            // Fetch accepted connections (where user is either initiator or receiver)
+            // Step 1: fetch connections — always works regardless of DB schema
             const { data, error } = await supabase
                 .from('user_connections')
                 .select(`
@@ -23,47 +23,45 @@ export const useUserConnections = () => {
                     user_id,
                     linked_user_id,
                     user:user_id(nickname),
-                    linked_user:linked_user_id(nickname),
-                    user_balance,
-                    linked_user_balance,
-                    wishes_balance,
-                    pity_counter,
-                    gifts_received
+                    linked_user:linked_user_id(nickname)
                 `)
                 .or(`user_id.eq.${user.id},linked_user_id.eq.${user.id}`)
                 .eq('status', 'accepted');
 
             if (error) throw error;
 
-            // Normalize connections to always have a 'partner' field
-            const normalizedConnections = data.map(conn => {
+            // Normalize: always expose partner's info regardless of who initiated
+            const normalized = data.map(conn => {
                 const isInitiator = conn.user_id === user.id;
                 return {
                     ...conn,
-                    partner: isInitiator ? conn.linked_user : conn.user,
                     partnerId: isInitiator ? conn.linked_user_id : conn.user_id,
                     partnerNickname: isInitiator ? conn.linked_user?.nickname : conn.user?.nickname,
-                    myBalance: isInitiator ? conn.user_balance : conn.linked_user_balance,
-                    partnerBalance: isInitiator ? conn.linked_user_balance : conn.user_balance,
-                    // These are shared/single fields for the connection in this simple model, 
-                    // or do we want specific columns? 
-                    // The schema added them as single columns for the connection rows.
-                    // Implementation plan said: add to user_connections. 
-                    // Logic: If I am friend A, and I select Friend B, I see "OUR" wishes balance?
-                    // User Request: "Для каждого друга должно быть свое состояние баланса ... и круток"
-                    // Ideally, "My stats with Friend B".
-                    // Since the columns are on the `user_connections` table, they belong to the RELATIONSHIP.
-                    // So both see the same Pity Counter? That might be intended for "Partner Gacha".
-                    // Or did we want discrete columns?
-                    // The prompt says "balance of primogems and wishes... gift counter".
-                    // Let's assume shared for the pair for now as they are on the link table.
-                    wishes: conn.wishes_balance,
-                    pity: conn.pity_counter,
-                    gifts: conn.gifts_received
+                    partnerLastSeen: null, // will be filled below if column exists
                 };
             });
 
-            setConnections(normalizedConnections);
+            // Step 2: try to fetch last_seen separately (fails gracefully if column doesn't exist yet)
+            try {
+                const partnerIds = normalized.map(c => c.partnerId).filter(Boolean);
+                if (partnerIds.length > 0) {
+                    const { data: usersData, error: usersError } = await supabase
+                        .from('users')
+                        .select('id, last_seen')
+                        .in('id', partnerIds);
+
+                    if (!usersError && usersData) {
+                        const lastSeenMap = Object.fromEntries(usersData.map(u => [u.id, u.last_seen]));
+                        normalized.forEach(conn => {
+                            conn.partnerLastSeen = lastSeenMap[conn.partnerId] ?? null;
+                        });
+                    }
+                }
+            } catch {
+                // last_seen column doesn't exist yet — continue without it
+            }
+
+            setConnections(normalized);
 
         } catch (err) {
             console.error('Error fetching connections:', err);
@@ -72,6 +70,7 @@ export const useUserConnections = () => {
             setLoading(false);
         }
     }, [user]);
+
 
     const fetchPendingRequests = useCallback(async () => {
         if (!user) return;
@@ -101,8 +100,30 @@ export const useUserConnections = () => {
         }
     }, [user, fetchConnections, fetchPendingRequests]);
 
+    const removeConnection = async (connectionId) => {
+        try {
+            const { error } = await supabase
+                .from('user_connections')
+                .delete()
+                .eq('id', connectionId);
+
+            if (error) throw error;
+
+            await fetchConnections();
+            return { success: true };
+        } catch (err) {
+            console.error('Error removing connection:', err);
+            return { success: false, error: err.message };
+        }
+    };
+
     const sendRequest = async (targetUserId) => {
         try {
+            // Check friend limit
+            if (connections.length >= 10) {
+                return { success: false, error: "Достигнут лимит 10 друзей" };
+            }
+
             console.log("Attempting to link users:", { myId: user.id, targetId: targetUserId });
 
             // Check if trying to link self
@@ -181,6 +202,7 @@ export const useUserConnections = () => {
         sendRequest,
         acceptRequest,
         rejectRequest,
+        removeConnection,
         refreshConnections: fetchConnections
     };
 };

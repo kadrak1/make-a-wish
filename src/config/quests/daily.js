@@ -3,10 +3,9 @@ export const dailyQuests = [
         id: 1,
         title: 'Ежедневное поручение: Утренний поцелуй',
         description: 'Поцелуй свою половинку утром.',
-        type: 'daily', // purple
+        type: 'daily',
         rewards: {
-            primogems: 60,
-            mora: 10000
+            primogems: 60
         }
     },
     {
@@ -15,8 +14,7 @@ export const dailyQuests = [
         description: 'Обнимайтесь не менее 10 секунд.',
         type: 'daily',
         rewards: {
-            primogems: 60,
-            mora: 10000
+            primogems: 60
         }
     },
     {
@@ -25,8 +23,7 @@ export const dailyQuests = [
         description: 'Скажи что-нибудь приятное, чтобы вызвать улыбку.',
         type: 'daily',
         rewards: {
-            primogems: 60,
-            mora: 10000
+            primogems: 60
         }
     },
     {
@@ -35,8 +32,7 @@ export const dailyQuests = [
         description: 'Поговорите по душам 15 минут.',
         type: 'daily',
         rewards: {
-            primogems: 60,
-            mora: 10000
+            primogems: 60
         }
     }
 ];

@@ -30,6 +30,7 @@ export const useQuestSystem = () => {
 
     const [dailyRewardClaimed, setDailyRewardClaimed] = useState(false);
     const [compensationClaimed, setCompensationClaimed] = useState(false);
+    const [hiddenQuestIds, setHiddenQuestIds] = useState([]);
     const [loading, setLoading] = useState(true);
 
     // Helper to get current Moscow date string (YYYY-MM-DD)
@@ -100,6 +101,7 @@ export const useQuestSystem = () => {
                     setCompletedQuestIds(currentCompletedQuests);
                     setDailyRewardClaimed(currentDailyRewardClaimed);
                     setCompensationClaimed(currentCompensationClaimed);
+                    setHiddenQuestIds(currentSettings.hidden_quests || []);
                 }
 
                 // 2. Fetch Custom Quests Config
@@ -181,9 +183,9 @@ export const useQuestSystem = () => {
                     rewards: q.rewards || { primogems: q.reward || 0 }
                 }));
 
-                setDailyQuests(normalizedDaily);
-                setMainQuestSteps(finalMain);
-                setWorldQuests(finalWorld);
+                setDailyQuests(normalizedDaily.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
+                setMainQuestSteps(finalMain.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
+                setWorldQuests(finalWorld.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
 
             } catch (error) {
                 console.error("Error fetching quest data:", error);
@@ -193,6 +195,27 @@ export const useQuestSystem = () => {
         };
 
         fetchData();
+
+        // Realtime: sync primogems/wishes when game_state changes externally
+        // (e.g. when claimReward in useSharedQuests writes to game_state)
+        const gameStateChannel = supabase
+            .channel(`game_state_${user.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'game_state',
+                filter: `user_id=eq.${user.id}`
+            }, (payload) => {
+                if (payload.new) {
+                    if (payload.new.primogems !== undefined) setGlobalPrimogems(payload.new.primogems);
+                    if (payload.new.wishes !== undefined) setGlobalWishes(payload.new.wishes);
+                }
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(gameStateChannel);
+        };
     }, [user]);
 
     // Determine current main quest step
@@ -298,13 +321,15 @@ export const useQuestSystem = () => {
             wishes: newWishes,
             completed_quests: newCompleted
         });
+
+        return { success: true, rewardAmount: quest.rewards.primogems || 0 };
     }, [completedQuestIds, allQuests, primogems, wishes, user]);
 
     const claimDailyReward = useCallback(async () => {
         if (dailyProgress.canClaim) {
             const newPrimos = primogems + 20;
             setDailyRewardClaimed(true); // Optimistic
-            setPrimogems(newPrimos);
+            setGlobalPrimogems(newPrimos);
 
             try {
                 // Fetch current settings first to preserve other settings
@@ -326,19 +351,23 @@ export const useQuestSystem = () => {
                         }
                     })
                     .eq('user_id', user.id);
+
+                return { success: true, rewardAmount: 20 };
             } catch (error) {
                 console.error("Error claiming daily reward:", error);
                 setDailyRewardClaimed(false); // Revert
-                setPrimogems(primogems);
+                setGlobalPrimogems(primogems);
+                return { success: false, error: error.message };
             }
         }
+        return { success: false, error: "Недостаточно выполненных заданий" };
     }, [dailyProgress, primogems, user]);
 
     const claimCompensation = useCallback(async () => {
         if (!compensationClaimed) {
             const newPrimos = primogems + 40;
             setCompensationClaimed(true); // Optimistic
-            setPrimogems(newPrimos);
+            setGlobalPrimogems(newPrimos);
 
             try {
                 // Fetch current settings first
@@ -363,14 +392,14 @@ export const useQuestSystem = () => {
             } catch (error) {
                 console.error("Error claiming compensation:", error);
                 setCompensationClaimed(false); // Revert
-                setPrimogems(primogems);
+                setGlobalPrimogems(primogems);
             }
         }
     }, [compensationClaimed, primogems, user]);
 
     const buyWish = useCallback(async () => {
-        if (primogems >= 160) {
-            const newPrimos = primogems - 160;
+        if (primogems >= 100) {
+            const newPrimos = primogems - 100;
             const newWishes = wishes + 1;
 
             await updateGameState({
@@ -392,25 +421,86 @@ export const useQuestSystem = () => {
     }, [wishes, user]);
 
     const consumePrimosForWish = useCallback(async () => {
-        if (primogems >= 160) {
-            const newPrimos = primogems - 160;
+        if (primogems >= 100) {
+            const newPrimos = primogems - 100;
             await updateGameState({ primogems: newPrimos });
             return true;
         }
         return false;
     }, [primogems, user]);
 
+    const deleteSystemQuest = useCallback(async (questId) => {
+        const newHidden = [...hiddenQuestIds, questId];
+        // Optimistic update
+        setHiddenQuestIds(newHidden);
+        setDailyQuests(prev => prev.filter(q => q.id !== questId));
+        setMainQuestSteps(prev => prev.filter(q => q.id !== questId));
+        setWorldQuests(prev => prev.filter(q => q.id !== questId));
+
+        try {
+            const { data: gameState } = await supabase
+                .from('game_state')
+                .select('settings')
+                .eq('user_id', user.id)
+                .single();
+
+            const currentSettings = gameState?.settings || {};
+            await supabase
+                .from('game_state')
+                .update({
+                    settings: { ...currentSettings, hidden_quests: newHidden }
+                })
+                .eq('user_id', user.id);
+        } catch (error) {
+            console.error('Error hiding quest:', error);
+            // Revert
+            setHiddenQuestIds(hiddenQuestIds);
+        }
+    }, [hiddenQuestIds, user]);
+
+    // Mark world quest completed for BOTH current user and partner simultaneously
+    const completeWorldQuest = useCallback(async (questId, partnerId) => {
+        // Optimistic local update
+        setCompletedQuestIds(prev => [...prev, questId]);
+
+        try {
+            // 1. Fetch current user's completed_quest_ids (already in state, but fetch fresh for safety)
+            const [myState, partnerState] = await Promise.all([
+                supabase.from('game_state').select('completed_quest_ids').eq('user_id', user.id).single(),
+                supabase.from('game_state').select('completed_quest_ids').eq('user_id', partnerId).single(),
+            ]);
+
+            const myIds = myState.data?.completed_quest_ids || [];
+            const partnerIds = partnerState.data?.completed_quest_ids || [];
+
+            await Promise.all([
+                supabase.from('game_state')
+                    .update({ completed_quest_ids: [...new Set([...myIds, questId])] })
+                    .eq('user_id', user.id),
+                supabase.from('game_state')
+                    .update({ completed_quest_ids: [...new Set([...partnerIds, questId])] })
+                    .eq('user_id', partnerId),
+            ]);
+        } catch (error) {
+            console.error('Error completing world quest for both:', error);
+            // Revert optimistic update
+            setCompletedQuestIds(prev => prev.filter(id => id !== questId));
+        }
+    }, [user]);
+
     return {
         primogems,
         wishes,
         completedQuestIds,
         dailyQuests,
-        mainQuest: currentMainQuest, // Return the current step or null
+        mainQuest: currentMainQuest,
         mainQuestProgress,
         worldQuests,
         dailyProgress,
         compensationClaimed,
         completeQuest,
+        deleteSystemQuest,
+        completeWorldQuest,
         claimDailyReward,
         claimCompensation,
         buyWish,

@@ -1,20 +1,22 @@
-import React from 'react';
-import { Check, Shield, Gem, Clock, Award } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, Shield, Star, Clock, X } from 'lucide-react';
 
-const SharedQuestItem = ({ quest, role, onAction, loading }) => {
+const SharedQuestItem = ({ quest, role, onAction, onDelete, loading }) => {
     // role: 'creator' | 'assignee'
-    // quest: { status: 'active' | 'completed' | 'verified' | 'claimed', ... }
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+    const canDelete = role === 'creator' || (role === 'assignee' && quest.status === 'active');
 
     const getStatusBadge = () => {
         switch (quest.status) {
             case 'active':
-                return <span className="text-blue-500 text-xs font-bold flex items-center gap-1"><Clock size={12} /> АКТИВНО</span>;
+                return <span className="text-yellow-600 text-sm font-bold flex items-center gap-1 uppercase tracking-wide"><Clock size={14} /> Активно</span>;
             case 'completed':
-                return <span className="text-orange-500 text-xs font-bold flex items-center gap-1"><Check size={12} /> ЖДЕТ ПРОВЕРКИ</span>;
+                return <span className="text-orange-700 text-sm font-bold flex items-center gap-1 uppercase tracking-wide"><Check size={14} /> Ждет проверки</span>;
             case 'verified':
-                return <span className="text-green-500 text-xs font-bold flex items-center gap-1"><Shield size={12} /> ПРОВЕРЕНО</span>;
+                return <span className="text-yellow-600 text-sm font-bold flex items-center gap-1 uppercase tracking-wide"><Shield size={14} /> Проверено</span>;
             case 'claimed':
-                return <span className="text-gray-400 text-xs font-bold flex items-center gap-1"><Check size={12} /> ЗАВЕРШЕНО</span>;
+                return <span className="text-gray-400 text-sm font-bold flex items-center gap-1 uppercase tracking-wide"><Check size={14} /> Завершено</span>;
             default:
                 return null;
         }
@@ -39,68 +41,102 @@ const SharedQuestItem = ({ quest, role, onAction, loading }) => {
                 return (
                     <button
                         onClick={() => onAction('claim', quest)}
-                        className="bg-purple-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-purple-400 flex items-center gap-2 animate-pulse"
+                        className="bg-yellow-400 text-[#3D2E00] px-4 py-2 rounded-full text-sm font-bold shadow-lg hover:bg-yellow-300 flex items-center gap-2 animate-pulse"
                     >
-                        <Gem size={14} /> ЗАБРАТЬ
+                        <Star size={16} /> ЗАБРАТЬ
                     </button>
                 );
             }
         }
 
-        if (role === 'creator') {
-            if (quest.status === 'completed') {
-                return (
-                    <button
-                        onClick={() => onAction('verify', quest.id)}
-                        className="bg-green-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-green-400 flex items-center gap-2"
-                    >
-                        <Shield size={14} /> ПОДТВЕРДИТЬ
-                    </button>
-                );
-            }
+        if (role === 'creator' && quest.status === 'completed') {
+            return (
+                <button
+                    onClick={() => onAction('verify', quest.id)}
+                    className="bg-yellow-400 text-[#3D2E00] px-4 py-2 rounded-full text-sm font-bold shadow-lg hover:bg-yellow-300 flex items-center gap-2"
+                >
+                    <Shield size={16} /> ПОДТВЕРДИТЬ
+                </button>
+            );
         }
 
         return null;
     };
 
     return (
-        <div className={`
-            relative p-4 rounded-xl border-2 transition-all duration-300
-            ${quest.status === 'claimed'
-                ? 'border-gray-200 bg-gray-50 opacity-75'
-                : 'border-[#E3D7B6] bg-[#FDFBF7] hover:shadow-md'
-            }
-        `}>
-            <div className="flex justify-between items-start gap-3">
-                <div className="flex-1">
+        <>
+            <div className={`
+                relative p-4 rounded-xl border-2 transition-all duration-300
+                ${quest.status === 'claimed'
+                    ? 'border-gray-200 bg-gray-50 opacity-75'
+                    : 'border-[#E3D7B6] bg-[#FDFBF7] hover:shadow-md'
+                }
+            `}>
+                {/* Delete button — top right corner */}
+                {canDelete && onDelete && (
+                    <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="absolute top-2 right-2 p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                        title="Удалить квест"
+                    >
+                        <X size={14} />
+                    </button>
+                )}
+
+                <div className="pr-5">
                     <div className="flex items-center gap-2 mb-1">
-                        <h4 className={`font-bold text-sm ${quest.status === 'claimed' ? 'text-gray-500' : 'text-[#4A4238]'}`}>
+                        <h4 className={`font-bold text-base ${quest.status === 'claimed' ? 'text-gray-500' : 'text-orange-900'}`}>
                             {quest.title}
                         </h4>
                         {getStatusBadge()}
                     </div>
 
                     {quest.description && (
-                        <p className="text-xs text-[#8E7C68] mb-2 leading-relaxed">
+                        <p className="text-sm text-gray-600 mb-2 leading-relaxed font-normal">
                             {quest.description}
                         </p>
                     )}
 
-                    <div className="flex items-center gap-2 mt-2">
-                        <div className="flex items-center gap-1 bg-[#F5F5F5] px-2 py-1 rounded-md border border-gray-200">
-                            <Gem size={12} className="text-purple-500" />
-                            <span className="text-xs font-bold text-gray-600">
-                                {quest.reward_primogems}
-                            </span>
+                    <div className="flex items-center gap-2 mt-2 mb-3">
+                        <div className="flex items-center gap-1.5 bg-yellow-50 px-2 py-1 rounded-md border border-yellow-200">
+                            <Star size={14} className="text-yellow-500 fill-yellow-500" />
+                            <span className="text-sm font-bold text-yellow-700">{quest.reward_primogems}</span>
+                        </div>
+                    </div>
+
+                    {/* Action button — bottom */}
+                    <div className="flex justify-end">
+                        {renderAction()}
+                    </div>
+                </div>
+            </div>
+
+            {/* Delete Confirmation */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-[#FDFBF7] border-2 border-[#E3D7B6] rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <h3 className="text-[#8E7C68] font-bold text-lg mb-2 text-center uppercase tracking-wider">Удалить квест?</h3>
+                        <p className="text-gray-600 text-center mb-6 text-sm">«{quest.title}» будет удалён.</p>
+                        <div className="flex gap-3 justify-center">
+                            <button onClick={() => setShowDeleteConfirm(false)} className="px-6 py-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 transition-colors font-bold text-sm">Отмена</button>
+                            <button
+                                onClick={async () => {
+                                    const result = await onDelete(quest.id, quest);
+                                    if (result && !result.success) {
+                                        alert('Ошибка: ' + result.error);
+                                    } else {
+                                        setShowDeleteConfirm(false);
+                                    }
+                                }}
+                                className="px-6 py-2 rounded-full bg-[#8E7C68] hover:bg-[#7a6b5a] text-white transition-colors font-bold text-sm shadow-sm"
+                            >
+                                Удалить
+                            </button>
                         </div>
                     </div>
                 </div>
-
-                <div className="flex items-center justify-center">
-                    {renderAction()}
-                </div>
-            </div>
-        </div>
+            )}
+        </>
     );
 };
 

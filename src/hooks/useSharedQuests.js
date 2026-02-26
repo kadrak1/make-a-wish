@@ -1,17 +1,23 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 export const useSharedQuests = (partnerId) => {
     const { user } = useAuth();
 
-    const [questsByMe, setQuestsByMe] = useState([]); // Quests I created
-    const [questsForMe, setQuestsForMe] = useState([]); // Quests assigned to me
+    // Raw server data
+    const [rawQuestsByMe, setRawQuestsByMe] = useState([]);
+    const [rawQuestsForMe, setRawQuestsForMe] = useState([]);
+
+    // Local optimistic states
+    const [optimisticNewQuests, setOptimisticNewQuests] = useState([]);
+    const [deletedQuestIds, setDeletedQuestIds] = useState(new Set());
+
     const [loading, setLoading] = useState(true);
 
-    const fetchQuests = useCallback(async () => {
+    const fetchQuests = useCallback(async (silent = false) => {
         if (!user || !partnerId) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
             // Fetch quests created by me for partner
             const { data: byMe, error: err1 } = await supabase
@@ -19,11 +25,12 @@ export const useSharedQuests = (partnerId) => {
                 .select('*')
                 .eq('created_by', user.id)
                 .eq('assigned_to', partnerId)
-                .neq('status', 'claimed') // Optional: hide claimed ones? Or keep them. Let's keep them for history for now, user can filter.
+                .not('status', 'in', '("claimed","deleted")')
                 .order('created_at', { ascending: false });
 
             if (err1) throw err1;
-            setQuestsByMe(byMe);
+            // Filter out locally deleted ones immediately when setting raw state
+            setRawQuestsByMe((byMe || []).filter(q => !deletedQuestIds.has(String(q.id))));
 
             // Fetch quests assigned to me by partner
             const { data: forMe, error: err2 } = await supabase
@@ -31,36 +38,36 @@ export const useSharedQuests = (partnerId) => {
                 .select('*')
                 .eq('assigned_to', user.id)
                 .eq('created_by', partnerId)
-                .neq('status', 'claimed')
+                .not('status', 'in', '("claimed","deleted")')
                 .order('created_at', { ascending: false });
 
             if (err2) throw err2;
-            setQuestsForMe(forMe);
+            setRawQuestsForMe((forMe || []).filter(q => !deletedQuestIds.has(String(q.id))));
+
+            // Clean up optimistic new quests if they now exist in raw
+            setOptimisticNewQuests(prev => {
+                const rawTitles = new Set([...(byMe || []), ...(forMe || [])].map(q => q.title));
+                return prev.filter(q => !rawTitles.has(q.title));
+            });
 
         } catch (error) {
             console.error("Error fetching shared quests:", error);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
-    }, [user, partnerId]);
+    }, [user, partnerId, deletedQuestIds]);
 
     useEffect(() => {
         fetchQuests();
 
-        // Subscription for real-time updates
         if (!user || !partnerId) return;
 
         const subscription = supabase
-            .channel('public:shared_quests')
+            .channel(`shared_quests_${partnerId}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_quests' }, (payload) => {
-                // Simplistic refresh on any change involving these users
-                const rec = payload.new || payload.old;
-                if (
-                    (rec.created_by === user.id && rec.assigned_to === partnerId) ||
-                    (rec.created_by === partnerId && rec.assigned_to === user.id)
-                ) {
-                    fetchQuests();
-                }
+                // IMPORTANT: Only refresh if it's NOT a local action we already handled optimistically
+                // But since we have the blacklist, it's safe to refresh.
+                fetchQuests(true);
             })
             .subscribe();
 
@@ -69,7 +76,33 @@ export const useSharedQuests = (partnerId) => {
         };
     }, [user, partnerId, fetchQuests]);
 
-    const createQuest = async (title, description, reward) => {
+    // Computed display lists (simplified)
+    const questsByMe = useMemo(() => {
+        return [...optimisticNewQuests, ...rawQuestsByMe];
+    }, [rawQuestsByMe, optimisticNewQuests]);
+
+    const questsForMe = useMemo(() => {
+        return rawQuestsForMe;
+    }, [rawQuestsForMe]);
+
+    const createQuest = async (title, description, reward, questType = 'one-time', scheduleDays = []) => {
+        const tempId = 'temp-' + Date.now();
+        const newQuest = {
+            id: tempId,
+            created_by: user.id,
+            assigned_to: partnerId,
+            title,
+            description,
+            reward_primogems: parseInt(reward) || 0,
+            schedule_days: scheduleDays,
+            status: 'active',
+            quest_type: questType,
+            created_at: new Date().toISOString()
+        };
+
+        // Optimistic add
+        setOptimisticNewQuests(prev => [newQuest, ...prev]);
+
         try {
             const { error } = await supabase
                 .from('shared_quests')
@@ -79,45 +112,57 @@ export const useSharedQuests = (partnerId) => {
                     title,
                     description,
                     reward_primogems: parseInt(reward) || 0,
-                    status: 'active'
+                    schedule_days: scheduleDays,
+                    status: 'active',
+                    quest_type: questType
                 }]);
 
             if (error) throw error;
             return { success: true };
         } catch (error) {
             console.error("Error creating quest:", error);
+            // Rollback
+            setOptimisticNewQuests(prev => prev.filter(q => q.id !== tempId));
             return { success: false, error: error.message };
         }
     };
 
     const markAsCompleted = async (questId) => {
+        // Optimistic local state update
+        setRawQuestsForMe(prev => prev.map(q => q.id === questId ? { ...q, status: 'completed' } : q));
+
         try {
             const { error } = await supabase
                 .from('shared_quests')
                 .update({ status: 'completed', completed_at: new Date().toISOString() })
                 .eq('id', questId)
-                .eq('assigned_to', user.id); // Security check
+                .eq('assigned_to', user.id);
 
             if (error) throw error;
             return { success: true };
         } catch (error) {
             console.error("Error completing quest:", error);
+            fetchQuests(true); // Restore state
             return { success: false, error: error.message };
         }
     };
 
     const verifyQuest = async (questId) => {
+        // Optimistic local state update
+        setRawQuestsByMe(prev => prev.map(q => q.id === questId ? { ...q, status: 'verified' } : q));
+
         try {
             const { error } = await supabase
                 .from('shared_quests')
                 .update({ status: 'verified' })
                 .eq('id', questId)
-                .eq('created_by', user.id); // Security check
+                .eq('created_by', user.id);
 
             if (error) throw error;
             return { success: true };
         } catch (error) {
             console.error("Error verifying quest:", error);
+            fetchQuests(true); // Restore state
             return { success: false, error: error.message };
         }
     };
@@ -126,8 +171,11 @@ export const useSharedQuests = (partnerId) => {
         if (quest.status !== 'verified') return { success: false, error: "Тут нечего получать" };
         if (quest.assigned_to !== user.id) return { success: false, error: "Это не ваш квест" };
 
+        // Optimistic hide
+        setDeletedQuestIds(prev => new Set(prev).add(String(quest.id)));
+        setRawQuestsForMe(prev => prev.filter(q => q.id !== quest.id));
+
         try {
-            // 1. Update status to 'claimed' to prevent double claim
             const { error: dbError } = await supabase
                 .from('shared_quests')
                 .update({ status: 'claimed' })
@@ -136,40 +184,82 @@ export const useSharedQuests = (partnerId) => {
 
             if (dbError) throw dbError;
 
-            // 2. Add gems to the specific connection balance
-            // We need to know who is who in the connection logic.
-            // Simplified: We accept that 'permission' to update user_connections relies on RLS allowing update if auth.uid is involved.
-            // However, we need to know WHICH column to update.
-            // Since we know the partnerId, we can find the connection row.
-
-            // Fetch the connection ID and determine role
-            const { data: connection, error: connError } = await supabase
-                .from('user_connections')
-                .select('id, user_id, linked_user_id, user_balance, linked_user_balance')
-                .or(`and(user_id.eq.${user.id},linked_user_id.eq.${partnerId}),and(user_id.eq.${partnerId},linked_user_id.eq.${user.id})`)
+            const { data: gameState, error: fetchError } = await supabase
+                .from('game_state')
+                .select('primogems')
+                .eq('user_id', user.id)
                 .single();
 
-            if (connError) throw connError;
+            if (fetchError) throw fetchError;
 
-            const isUserIsInitiator = connection.user_id === user.id;
-            const columnToUpdate = isUserIsInitiator ? 'user_balance' : 'linked_user_balance';
-            const currentBalance = isUserIsInitiator ? connection.user_balance : connection.linked_user_balance;
-            const newBalance = (currentBalance || 0) + (quest.reward_primogems || 0);
+            const newBalance = (gameState.primogems || 0) + (quest.reward_primogems || 0);
 
             const { error: updateError } = await supabase
-                .from('user_connections')
-                .update({ [columnToUpdate]: newBalance })
-                .eq('id', connection.id);
+                .from('game_state')
+                .update({ primogems: newBalance })
+                .eq('user_id', user.id);
 
             if (updateError) throw updateError;
 
-            // Also update local state if needed via callback or let Realtime handle it (UserConnections hook should pick it up if we refresh)
-            // For now, return success.
+            if (quest.quest_type === 'together') {
+                const { data: creatorState, error: creatorFetchError } = await supabase
+                    .from('game_state')
+                    .select('primogems')
+                    .eq('user_id', quest.created_by)
+                    .single();
+
+                if (!creatorFetchError && creatorState) {
+                    const creatorNewBalance = (creatorState.primogems || 0) + (quest.reward_primogems || 0);
+                    await supabase
+                        .from('game_state')
+                        .update({ primogems: creatorNewBalance })
+                        .eq('user_id', quest.created_by);
+                }
+            }
 
             return { success: true };
         } catch (error) {
             console.error("Error claiming reward:", error);
+            setDeletedQuestIds(prev => { const n = new Set(prev); n.delete(String(quest.id)); return n; });
+            fetchQuests(true);
             return { success: false, error: error.message };
+        }
+    };
+
+    const deleteQuest = async (questId, quest) => {
+        const isCreator = quest.created_by === user.id;
+        const isAssignee = quest.assigned_to === user.id;
+        const canDelete = isCreator || (isAssignee && quest.status === 'active');
+
+        if (!canDelete) {
+            return { success: false, error: 'Нельзя удалить этот квест' };
+        }
+
+        // IMMEDIATE LOCAL UPDATE (Matching All Quests behavior)
+        setDeletedQuestIds(prev => new Set(prev).add(String(questId)));
+        setRawQuestsByMe(prev => prev.filter(q => String(q.id) !== String(questId)));
+        setRawQuestsForMe(prev => prev.filter(q => String(q.id) !== String(questId)));
+        setOptimisticNewQuests(prev => prev.filter(q => String(q.id) !== String(questId)));
+
+
+        try {
+            const { error } = await supabase
+                .from('shared_quests')
+                .delete()
+                .eq('id', questId);
+
+            if (error) throw error;
+            return { success: true };
+        } catch (error) {
+            console.error('Error deleting quest:', error);
+            // Rollback
+            setDeletedQuestIds(prev => {
+                const next = new Set(prev);
+                next.delete(String(questId));
+                return next;
+            });
+            fetchQuests(true);
+            return { success: false, error: error.message || String(error) };
         }
     };
 
@@ -180,6 +270,7 @@ export const useSharedQuests = (partnerId) => {
         createQuest,
         markAsCompleted,
         verifyQuest,
-        claimReward
+        claimReward,
+        deleteQuest
     };
 };
