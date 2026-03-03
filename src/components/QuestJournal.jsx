@@ -8,6 +8,7 @@ import { useAllMySharedQuests } from '../hooks/useAllMySharedQuests';
 import { useSharedQuests } from '../hooks/useSharedQuests';
 import { useAuth } from '../context/AuthContext';
 import SharedQuestTab from './SharedQuestTab';
+import ProgressPath from './ProgressPath';
 
 const ALL_FILTERS = [
     { id: 'all', label: 'Все' },
@@ -204,6 +205,13 @@ const QuestJournal = ({
                             ${activeTab === 'partners' ? 'bg-[#8E7C68] text-[#F4F4F5] shadow-sm' : 'text-[#8E7C68] hover:bg-[#8E7C68]/10'}`}
                     >
                         <Users size={14} /> Партнёры
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('progress')}
+                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap
+                            ${activeTab === 'progress' ? 'bg-[#8E7C68] text-[#F4F4F5] shadow-sm' : 'text-[#8E7C68] hover:bg-[#8E7C68]/10'}`}
+                    >
+                        <Star size={14} /> Прогресс
                     </button>
                 </div>
 
@@ -524,6 +532,13 @@ const QuestJournal = ({
                                     </div>
                                 </>
                             )}
+                        </div>
+                    )}
+
+                    {/* ── Tab: Прогресс ── */}
+                    {activeTab === 'progress' && (
+                        <div className="flex-1 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
+                            <ProgressPath />
                         </div>
                     )}
 

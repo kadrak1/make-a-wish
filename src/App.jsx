@@ -19,14 +19,26 @@ import bannerImage from './assets/images/banner.png';
 
 function Game() {
   const { user, logout, loading: authLoading } = useAuth();
-  // Access Friend Context
-  const { selectedFriendId, activeConnection } = useFriendContext();
+  const { selectedFriendId, activeConnection, isGlobalContext } = useFriendContext();
 
-  // Note: useQuestSystem is now context-aware and will return the correct primogems/wishes based on selectedFriendId
-  const { pullItem, history, isFinished, currentPullIndex, totalPulls, nextItemRarity, nextItem, loading: gachaLoading } = useGachaSystem();
   const {
-    primogems,
+    pullItem,
+    history,
+    isFinished,
+    hasPartnerGifts,
+    currentPullIndex,
+    totalPulls,
+    nextItemRarity,
+    nextItem,
+    loading: gachaLoading
+  } = useGachaSystem();
+
+  const {
+    universalPrimogems,
+    coloredPrimogems,
+    totalPrimogems,
     wishes,
+    wishCost,
     dailyQuests,
     mainQuest,
     mainQuestProgress,
@@ -51,17 +63,13 @@ function Game() {
   const [showProposal, setShowProposal] = useState(false);
   const [showCompensation, setShowCompensation] = useState(false);
 
-  // Show compensation modal if not claimed
   useEffect(() => {
     if (!questLoading && !compensationClaimed) {
-      const timer = setTimeout(() => {
-        setShowCompensation(true);
-      }, 1000); // Small delay for better UX
+      const timer = setTimeout(() => setShowCompensation(true), 1000);
       return () => clearTimeout(timer);
     }
   }, [questLoading, compensationClaimed]);
 
-  // UI State
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isQuestJournalOpen, setIsQuestJournalOpen] = useState(false);
   const [questJournalTab, setQuestJournalTab] = useState('all');
@@ -74,50 +82,31 @@ function Game() {
       const saved = localStorage.getItem('maw_volume');
       const parsed = saved ? parseFloat(saved) : 0.5;
       return isNaN(parsed) ? 0.5 : parsed;
-    } catch (e) {
-      console.error("Failed to parse volume", e);
-      return 0.5;
-    }
+    } catch { return 0.5; }
   });
 
   const [isMuted, setIsMuted] = useState(() => {
-    try {
-      const saved = localStorage.getItem('maw_muted');
-      return saved === 'true';
-    } catch (e) {
-      console.error("Failed to parse muted state", e);
-      return false;
-    }
+    try { return localStorage.getItem('maw_muted') === 'true'; }
+    catch { return false; }
   });
 
-  // Persist sound settings
   useEffect(() => {
-    try {
-      localStorage.setItem('maw_volume', volume.toString());
-    } catch (e) {
-      console.error("Failed to save volume", e);
-    }
+    try { localStorage.setItem('maw_volume', volume.toString()); } catch {}
   }, [volume]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('maw_muted', isMuted.toString());
-    } catch (e) {
-      console.error("Failed to save muted state", e);
-    }
+    try { localStorage.setItem('maw_muted', isMuted.toString()); } catch {}
   }, [isMuted]);
+
   const videoRef = useRef(null);
 
-  // Update video volume when settings change or animation state changes
   useEffect(() => {
     if (videoRef.current) {
       if (isAnimating || showResult) {
         videoRef.current.pause();
       } else {
         videoRef.current.volume = isMuted ? 0 : volume;
-        videoRef.current.play().catch(error => {
-          console.log("Autoplay prevented by browser:", error);
-        });
+        videoRef.current.play().catch(() => {});
       }
     }
   }, [volume, isMuted, isAnimating, showResult]);
@@ -126,22 +115,19 @@ function Game() {
 
   const handleResetData = async () => {
     if (!confirm("Вы уверены? Это полностью сотрет ваш прогресс на сервере.")) return;
-
     try {
-      // Reset Game State in Supabase
       await supabase
         .from('game_state')
         .update({
-          primogems: 0,
+          universal_primogems: 0,
           wishes: 0,
+          xp: 0,
           pity_counter: 0,
           history: [],
           completed_quests: [],
-          queue: [] // Will trigger re-rigging
+          queue: []
         })
         .eq('user_id', user.id);
-
-      // Reload page to reset state
       window.location.reload();
     } catch (error) {
       console.error("Error resetting data:", error);
@@ -149,11 +135,24 @@ function Game() {
     }
   };
 
+  // Баннер доступен только если выбран друг И у него есть подарки
+  const isBannerAvailable = !isGlobalContext && activeConnection && hasPartnerGifts;
+  const canAffordWish = wishes > 0 || totalPrimogems >= wishCost;
+
   const handleWishClick = () => {
     if (isAnimating || showResult || showProposal) return;
 
-    if (wishes === 0 && primogems < 100) {
-      alert("Не хватает Молитв или Камней Истока! Выполняй задания, чтобы получить больше.");
+    if (!isBannerAvailable) {
+      if (isGlobalContext) {
+        alert("Выбери друга, чтобы открыть баннер!");
+      } else {
+        alert("У партнёра пока нет подарков в баннере!");
+      }
+      return;
+    }
+
+    if (!canAffordWish) {
+      alert("Не хватает Камней Истока! Выполняй задания, чтобы получить больше.");
       return;
     }
 
@@ -163,13 +162,11 @@ function Game() {
   const confirmWish = async () => {
     setIsWishConfirmOpen(false);
 
-    // Preload next item image and sound
     if (nextItem) {
       if (nextItem.image) {
         const img = new Image();
         img.src = nextItem.image;
       }
-      // Preload global sound
       const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.m4a');
       audio.load();
     }
@@ -178,29 +175,24 @@ function Game() {
       spendWish();
       setIsAnimating(true);
     } else if (await consumePrimosForWish()) {
-      // If no wishes but enough primos, auto-convert and wish
       setIsAnimating(true);
     }
   };
 
   const handleAnimationComplete = async () => {
     setIsAnimating(false);
-    const item = await pullItem(); // pullItem is now async
+    const item = await pullItem();
 
     if (item) {
       setCurrentResult(item);
       setShowResult(true);
 
-      // Play global reward sound
       if (!isMuted) {
         try {
           const audio = new Audio(import.meta.env.BASE_URL + 'sounds/reveal.m4a');
-          // Boost volume significantly (2.5x), max out at 1.0
           audio.volume = Math.min(1.0, volume * 2.5);
           audio.play().catch(e => console.error("Error playing sound:", e));
-        } catch (e) {
-          console.error("Audio error:", e);
-        }
+        } catch {}
       }
     }
 
@@ -211,21 +203,18 @@ function Game() {
       }, 2000);
     }
   };
+
   const handleDismissResult = () => {
     setShowResult(false);
     setCurrentResult(null);
-
     if (currentResult && currentResult.rarity === 'legendary' && !showProposal) {
       setShowProposal(true);
     }
   };
 
-  // Background style (Genshin-ish sky)
-  const bgStyle = "bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#1a1b26] to-black";
-
   const handleInteraction = () => {
     if (videoRef.current && videoRef.current.paused) {
-      videoRef.current.play().catch(e => console.log("Play failed", e));
+      videoRef.current.play().catch(() => {});
     }
   };
 
@@ -237,9 +226,7 @@ function Game() {
     );
   }
 
-  if (!user) {
-    return <LoginScreen />;
-  }
+  if (!user) return <LoginScreen />;
 
   if (gachaLoading || questLoading) {
     return (
@@ -252,7 +239,7 @@ function Game() {
   return (
     <div
       onClick={handleInteraction}
-      className={`relative min-h-screen w-full overflow-hidden text-white font-sans selection:bg-pink-500/30`}
+      className="relative min-h-screen w-full overflow-hidden text-white font-sans selection:bg-pink-500/30"
     >
 
       {/* Inventory Sidebar */}
@@ -326,11 +313,16 @@ function Game() {
             </div>
 
             <div className="p-4 md:p-6 text-center">
-              <p className="text-[#8E7C68] text-base md:text-lg mb-6 font-medium">
-                Потратить {wishes > 0 ? "1 Молитву" : "100 Камней Истока"}?
+              <p className="text-[#8E7C68] text-base md:text-lg mb-2 font-medium">
+                Потратить {wishes > 0 ? "1 Молитву" : `${wishCost} Камней Истока`}?
               </p>
+              {wishes === 0 && coloredPrimogems > 0 && (
+                <p className="text-[#8E7C68] text-xs mb-4 opacity-70">
+                  {Math.min(coloredPrimogems, wishCost)} цветных + {Math.max(0, wishCost - coloredPrimogems)} белых
+                </p>
+              )}
 
-              <div className="flex justify-center gap-3 md:gap-4">
+              <div className="flex justify-center gap-3 md:gap-4 mt-4">
                 <button
                   onClick={() => setIsWishConfirmOpen(false)}
                   className="px-4 md:px-6 py-2 rounded-full border-2 border-[#E3D7B6] text-[#8E7C68] font-bold text-sm md:text-base hover:bg-[#E3D7B6]/10 transition-colors"
@@ -350,7 +342,7 @@ function Game() {
       )}
 
       {/* Main Content Area */}
-      <div className={`relative z-10 flex flex-col items-center justify-center min-h-screen p-4 transition-all duration-500`}>
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 transition-all duration-500">
 
         {/* Top Bar: Resources & Counter */}
         <div className="absolute top-2 right-4 md:top-4 md:right-8 flex flex-col items-end gap-1 z-50">
@@ -365,24 +357,40 @@ function Game() {
             </button>
           </div>
 
-          {/* Primogems */}
-          <div className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20">
-            <Star size={16} className="md:w-[18px] md:h-[18px] text-cyan-400 fill-cyan-400 drop-shadow-md" />
-            <span className="font-bold text-[#8E7C68] text-xs md:text-sm">{primogems}</span>
+          {/* Универсальные примогемы (белые) */}
+          <div className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1.5 rounded-full border-2 border-[#E3D7B6] shadow-lg shadow-black/20" title="Универсальные примогемы">
+            <Star size={16} className="md:w-[18px] md:h-[18px] text-cyan-200 fill-cyan-200 drop-shadow-md" />
+            <span className="font-bold text-[#8E7C68] text-xs md:text-sm">{universalPrimogems}</span>
           </div>
+
+          {/* Цветные примогемы (только в контексте друга) */}
+          {activeConnection && (
+            <div
+              className="flex items-center gap-2 md:gap-3 bg-[#F4F4F5] px-3 py-1 md:px-4 md:py-1 rounded-full border-2 shadow-lg shadow-black/20 mt-0.5"
+              style={{ borderColor: activeConnection.connectionColor || '#22d3ee' }}
+              title={`Цветные примогемы (${activeConnection.partnerNickname})`}
+            >
+              <Star
+                size={16}
+                className="md:w-[18px] md:h-[18px] drop-shadow-md"
+                style={{
+                  color: activeConnection.connectionColor || '#22d3ee',
+                  fill: activeConnection.connectionColor || '#22d3ee'
+                }}
+              />
+              <span className="font-bold text-[#8E7C68] text-xs md:text-sm">{coloredPrimogems}</span>
+            </div>
+          )}
+
+          {/* Гарант */}
           <div className="flex items-center gap-2 md:gap-3 bg-black/40 px-3 py-1 md:px-4 md:py-1 rounded-full border border-white/10 backdrop-blur-sm mt-1 md:mt-2">
             <span className="text-[10px] md:text-xs text-gray-300 uppercase tracking-wider">Гарант</span>
             <span className="font-bold text-white text-xs md:text-sm">
-              {/* Note: We might need to make Pity context-aware in GachaSystem too eventually. 
-                    For now, it displays global if not handled. But request said "pity counter specific for friend".
-                    useQuestSystem doesn't export pity. useGachaSystem currently uses global.
-                    For this iteration, we focus on Primos/Wishes which are injected. 
-                    TODO: Update GachaSystem for context pity. */}
               {currentPullIndex} / {totalPulls}
             </span>
           </div>
 
-          {/* Gift Counter (Only if friend selected) */}
+          {/* Подарки партнёра */}
           {activeConnection && (
             <div className="flex items-center gap-2 md:gap-3 bg-pink-500/20 px-3 py-1 md:px-4 md:py-1 rounded-full border border-pink-500/30 backdrop-blur-sm mt-1">
               <span className="text-[10px] md:text-xs text-pink-200 uppercase tracking-wider">Подарки</span>
@@ -394,7 +402,7 @@ function Game() {
           )}
         </div>
 
-        {/* Quest Journal Button */}
+        {/* Кнопки слева */}
         <div className="absolute top-2 left-4 md:top-4 md:left-8 z-40 flex gap-2 md:gap-4">
           <button
             onClick={() => setIsSettingsOpen(true)}
@@ -428,7 +436,6 @@ function Game() {
             <Book size={20} className="md:w-[24px] md:h-[24px] text-[#8E7C68]" />
           </button>
 
-          {/* Admin Button */}
           {user.role === 'admin' && (
             <button
               onClick={() => setIsAdminOpen(true)}
@@ -440,53 +447,81 @@ function Game() {
           )}
         </div>
 
-        {/* Banner & Wish Button Container */}
+        {/* Баннер и кнопка молитвы */}
         {!showProposal && !isAnimating && !showResult && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[1362px] aspect-[2.4/1] px-4 md:px-0 group transition-all duration-500">
 
-            {/* Banner Image (Clickable) */}
-            <div
-              onClick={handleWishClick}
-              className="w-full h-full border-2 border-[#E3D7B6]/50 rounded-xl overflow-hidden shadow-2xl shadow-black/50 flex items-center justify-center bg-black/20 backdrop-blur-sm group-hover:border-[#E3D7B6] transition-all duration-500 cursor-pointer active:scale-[0.99]"
-            >
-              <img
-                src={bannerImage}
-                alt="Event Banner"
-                className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500"
-              />
-            </div>
-
-            {/* Wish Button (Positioned relative to banner) */}
-            <div className="absolute -bottom-4 -right-0 md:-bottom-6 md:-right-6 z-20 scale-75 md:scale-100 origin-bottom-right pr-4 md:pr-0">
-              <button
-                onClick={handleWishClick}
-                disabled={wishes === 0 && primogems < 100}
-                className={`group/btn relative px-12 py-3 rounded-full border-[3px] border-[#E3D7B6] transition-all duration-300 shadow-xl shadow-black/40 flex items-center gap-3 ${wishes > 0 || primogems >= 100
-                  ? 'bg-[#F4F4F5] hover:scale-105 hover:-translate-y-1 cursor-pointer'
-                  : 'bg-gray-200 grayscale cursor-not-allowed opacity-80'
-                  }`}
-              >
-                <div className="flex flex-col items-center leading-none">
-                  <span className="text-[#8E7C68] font-bold text-xl tracking-widest mb-0.5">МОЛИТВА</span>
-                  <div className="flex items-center gap-1">
-                    <Star size={14} className="text-cyan-400 fill-cyan-400" />
-                    <span className="text-[#8E7C68] font-bold text-xs">x 100</span>
-                  </div>
+            {isBannerAvailable ? (
+              <>
+                {/* Баннер партнёра */}
+                <div
+                  onClick={handleWishClick}
+                  className="w-full h-full border-2 border-[#E3D7B6]/50 rounded-xl overflow-hidden shadow-2xl shadow-black/50 flex items-center justify-center bg-black/20 backdrop-blur-sm group-hover:border-[#E3D7B6] transition-all duration-500 cursor-pointer active:scale-[0.99]"
+                >
+                  <img
+                    src={bannerImage}
+                    alt="Event Banner"
+                    className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500"
+                  />
                 </div>
 
-                {/* Decorative side elements */}
-                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
-                  <Sparkles size={10} />
+                {/* Кнопка молитвы */}
+                <div className="absolute -bottom-4 -right-0 md:-bottom-6 md:-right-6 z-20 scale-75 md:scale-100 origin-bottom-right pr-4 md:pr-0">
+                  <button
+                    onClick={handleWishClick}
+                    disabled={!canAffordWish}
+                    className={`group/btn relative px-12 py-3 rounded-full border-[3px] border-[#E3D7B6] transition-all duration-300 shadow-xl shadow-black/40 flex items-center gap-3 ${
+                      canAffordWish
+                        ? 'bg-[#F4F4F5] hover:scale-105 hover:-translate-y-1 cursor-pointer'
+                        : 'bg-gray-200 grayscale cursor-not-allowed opacity-80'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center leading-none">
+                      <span className="text-[#8E7C68] font-bold text-xl tracking-widest mb-0.5">МОЛИТВА</span>
+                      <div className="flex items-center gap-1">
+                        <Star size={14} className="text-cyan-400 fill-cyan-400" />
+                        <span className="text-[#8E7C68] font-bold text-xs">x {wishCost}</span>
+                      </div>
+                    </div>
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
+                      <Sparkles size={10} />
+                    </div>
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
+                      <Sparkles size={10} />
+                    </div>
+                  </button>
                 </div>
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[#E3D7B6]">
-                  <Sparkles size={10} />
-                </div>
-              </button>
-            </div>
+              </>
+            ) : (
+              /* Нет баннера — подсказка */
+              <div className="w-full h-full border-2 border-[#E3D7B6]/20 rounded-xl flex flex-col items-center justify-center bg-black/30 backdrop-blur-sm gap-4">
+                {isGlobalContext ? (
+                  <>
+                    <Users size={48} className="text-[#E3D7B6]/40" />
+                    <p className="text-[#E3D7B6]/60 text-lg font-medium text-center px-8">
+                      Выбери друга, чтобы открыть баннер
+                    </p>
+                    <button
+                      onClick={() => setIsFriendsOpen(true)}
+                      className="px-6 py-2 rounded-full bg-[#E3D7B6]/20 border border-[#E3D7B6]/40 text-[#E3D7B6] text-sm hover:bg-[#E3D7B6]/30 transition-colors"
+                    >
+                      Открыть список друзей
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Gift size={48} className="text-[#E3D7B6]/40" />
+                    <p className="text-[#E3D7B6]/60 text-lg font-medium text-center px-8">
+                      У {activeConnection?.partnerNickname || 'партнёра'} пока нет подарков в баннере
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Video Animation (Always rendered for preloading) */}
+        {/* Анимация гачи */}
         <VideoAnimation
           rarity={nextItemRarity}
           onComplete={handleAnimationComplete}
@@ -495,7 +530,7 @@ function Game() {
           isActive={isAnimating}
         />
 
-        {/* Result Card */}
+        {/* Карточка результата */}
         {showResult && (
           <ResultCard
             item={currentResult}
@@ -503,7 +538,7 @@ function Game() {
           />
         )}
 
-        {/* Proposal Finale */}
+        {/* Финал предложения */}
         {showProposal && (
           <ProposalFinale
             onAccept={() => alert("Она сказала ДА! Поздравляем! ❤️")}
@@ -512,9 +547,7 @@ function Game() {
 
       </div>
 
-
-
-      {/* Background Video (Always mounted to prevent reloading delay) */}
+      {/* Фоновое видео */}
       <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isAnimating || showResult || showProposal ? 'opacity-0' : 'opacity-100'}`}>
         <video
           ref={videoRef}
@@ -530,7 +563,6 @@ function Game() {
           Your browser does not support the video tag.
         </video>
       </div>
-
 
     </div>
   );
