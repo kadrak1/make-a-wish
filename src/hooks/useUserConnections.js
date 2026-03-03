@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
+const MAX_CONNECTIONS = 2;
+
 export const useUserConnections = () => {
     const { user } = useAuth();
     const [connections, setConnections] = useState([]);
@@ -13,7 +15,7 @@ export const useUserConnections = () => {
         if (!user) return;
         setLoading(true);
         try {
-            // Step 1: fetch connections — always works regardless of DB schema
+            // Fetch accepted connections with balance and gacha columns
             const { data, error } = await supabase
                 .from('user_connections')
                 .select(`
@@ -22,6 +24,13 @@ export const useUserConnections = () => {
                     created_at,
                     user_id,
                     linked_user_id,
+                    user_primogems,
+                    linked_user_primogems,
+                    connection_color,
+                    wishes_balance,
+                    history,
+                    queue,
+                    pity_counter,
                     user:user_id(nickname),
                     linked_user:linked_user_id(nickname)
                 `)
@@ -30,18 +39,29 @@ export const useUserConnections = () => {
 
             if (error) throw error;
 
-            // Normalize: always expose partner's info regardless of who initiated
+            // Normalize: expose partner info and my/partner colored primogems
             const normalized = data.map(conn => {
                 const isInitiator = conn.user_id === user.id;
+                const myPrimogems = isInitiator
+                    ? (conn.user_primogems || 0)
+                    : (conn.linked_user_primogems || 0);
+                const partnerPrimogems = isInitiator
+                    ? (conn.linked_user_primogems || 0)
+                    : (conn.user_primogems || 0);
+
                 return {
                     ...conn,
                     partnerId: isInitiator ? conn.linked_user_id : conn.user_id,
                     partnerNickname: isInitiator ? conn.linked_user?.nickname : conn.user?.nickname,
-                    partnerLastSeen: null, // will be filled below if column exists
+                    partnerLastSeen: null, // filled below
+                    myPrimogems,
+                    partnerPrimogems,
+                    connectionColor: conn.connection_color || '#22d3ee',
+                    myWishes: conn.wishes_balance || 0,
                 };
             });
 
-            // Step 2: try to fetch last_seen separately (fails gracefully if column doesn't exist yet)
+            // Fetch last_seen for partners (gracefully skip if column missing)
             try {
                 const partnerIds = normalized.map(c => c.partnerId).filter(Boolean);
                 if (partnerIds.length > 0) {
@@ -71,11 +91,9 @@ export const useUserConnections = () => {
         }
     }, [user]);
 
-
     const fetchPendingRequests = useCallback(async () => {
         if (!user) return;
         try {
-            // Fetch requests sent TO the user (incoming)
             const { data, error } = await supabase
                 .from('user_connections')
                 .select(`
@@ -100,6 +118,24 @@ export const useUserConnections = () => {
         }
     }, [user, fetchConnections, fetchPendingRequests]);
 
+    // Realtime: auto-refresh connections on any update (e.g. balance changes)
+    useEffect(() => {
+        if (!user) return;
+
+        const channel = supabase
+            .channel(`user_connections_refresh_${user.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'user_connections',
+            }, () => {
+                fetchConnections();
+            })
+            .subscribe();
+
+        return () => supabase.removeChannel(channel);
+    }, [user, fetchConnections]);
+
     const removeConnection = async (connectionId) => {
         try {
             const { error } = await supabase
@@ -119,37 +155,23 @@ export const useUserConnections = () => {
 
     const sendRequest = async (targetUserId) => {
         try {
-            // Check friend limit
-            if (connections.length >= 10) {
-                return { success: false, error: "Достигнут лимит 10 друзей" };
+            // Check 2-connection limit (UI guard, RPC also enforces)
+            if (connections.length >= MAX_CONNECTIONS) {
+                return { success: false, error: `Достигнут лимит ${MAX_CONNECTIONS} соединений` };
             }
 
-            console.log("Attempting to link users:", { myId: user.id, targetId: targetUserId });
-
-            // Check if trying to link self
             if (user.id === targetUserId) {
-                return { success: false, error: "Нельзя добавить самого себя" };
+                return { success: false, error: 'Нельзя добавить самого себя' };
             }
 
-            console.log("Using RPC to link users (No Auth Mode):", { myId: user.id, targetId: targetUserId });
-
-            // We pass user.id explicitly because we are not using Supabase Auth
             const { data, error } = await supabase
                 .rpc('send_friend_request', {
                     sender_id: user.id,
                     target_user_id: targetUserId
                 });
 
-            if (error) {
-                console.error("RPC Error:", error);
-                throw error;
-            }
-
-            console.log("RPC Result:", data);
-
-            if (!data.success) {
-                return { success: false, error: data.error };
-            }
+            if (error) throw error;
+            if (!data.success) return { success: false, error: data.error };
 
             return { success: true };
         } catch (err) {
@@ -158,16 +180,18 @@ export const useUserConnections = () => {
         }
     };
 
-    const acceptRequest = async (connectionId) => {
+    const acceptRequest = async (connectionId, chosenColor) => {
         try {
+            const updates = { status: 'accepted' };
+            if (chosenColor) updates.connection_color = chosenColor;
+
             const { error } = await supabase
                 .from('user_connections')
-                .update({ status: 'accepted' })
+                .update(updates)
                 .eq('id', connectionId);
 
             if (error) throw error;
 
-            // Refresh lists
             await fetchConnections();
             await fetchPendingRequests();
             return { success: true };
@@ -199,6 +223,7 @@ export const useUserConnections = () => {
         pendingRequests,
         loading,
         error,
+        maxConnections: MAX_CONNECTIONS,
         sendRequest,
         acceptRequest,
         rejectRequest,

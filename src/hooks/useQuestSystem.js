@@ -6,24 +6,27 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { useFriendContext } from '../context/FriendContext';
 
+const WISH_COST = 160; // Стоимость 1 молитвы в примогемах
+
 export const useQuestSystem = () => {
     const { user } = useAuth();
     const { activeConnection, isGlobalContext, refreshConnections } = useFriendContext();
 
-    // Global State (Backup)
-    const [globalPrimogems, setGlobalPrimogems] = useState(0);
-    const [globalWishes, setGlobalWishes] = useState(0);
+    // Универсальные примогемы (белые) — всегда из game_state
+    const [universalPrimogems, setUniversalPrimogems] = useState(0);
+    // Wishes — личные токены молитв
+    const [wishes, setWishes] = useState(0);
+    // XP — опыт персонажа (от самостоятельных квестов, Фаза 2)
+    const [xp, setXp] = useState(0);
+    const [xpLevel, setXpLevel] = useState(1);
+    const [xpMilestonesClaimed, setXpMilestonesClaimed] = useState([]);
+    const [milestones, setMilestones] = useState([]);
 
-    // Derived State based on Context
-    const primogems = isGlobalContext ? globalPrimogems : (activeConnection?.myBalance || 0);
-    const wishes = isGlobalContext ? globalWishes : (activeConnection?.wishes || 0);
+    // Цветные примогемы — из активного соединения (только чтение, запись через useSharedQuests)
+    const coloredPrimogems = activeConnection?.myPrimogems || 0;
 
-    // We also need to handle Pity if we want it separate. 
-    // Assuming GachaSystem handles Pity, we might need to export it or pass it. 
-    // For now, let's just make sure Primogems and Wishes switch.
     const [completedQuestIds, setCompletedQuestIds] = useState([]);
 
-    // State for quests to allow dynamic updates from DB
     const [dailyQuests, setDailyQuests] = useState(defaultDailyQuests);
     const [mainQuestSteps, setMainQuestSteps] = useState(defaultMainQuestSteps);
     const [worldQuests, setWorldQuests] = useState(defaultWorldQuests);
@@ -33,24 +36,23 @@ export const useQuestSystem = () => {
     const [hiddenQuestIds, setHiddenQuestIds] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Helper to get current Moscow date string (YYYY-MM-DD)
     const getMoscowDateString = () => {
         const now = new Date();
         const moscowTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Moscow" }));
         return moscowTime.toISOString().split('T')[0];
     };
 
-    // Fetch data from Supabase
+    // Загрузка данных из Supabase
     useEffect(() => {
         if (!user) return;
 
         const fetchData = async () => {
             setLoading(true);
             try {
-                // 1. Fetch Game State
+                // 1. Состояние игры (universal_primogems, wishes, xp)
                 const { data: gameState, error: stateError } = await supabase
                     .from('game_state')
-                    .select('primogems, wishes, completed_quests, settings')
+                    .select('universal_primogems, wishes, xp, xp_level, xp_milestones_claimed, completed_quests, settings')
                     .eq('user_id', user.id)
                     .single();
 
@@ -61,20 +63,16 @@ export const useQuestSystem = () => {
                 let currentDailyRewardClaimed = currentSettings.daily_reward_claimed || false;
                 let currentCompensationClaimed = currentSettings.compensation_claimed || false;
 
-                // Check for daily reset
+                // Сброс дневных квестов по Москве
                 const today = getMoscowDateString();
                 const lastReset = currentSettings.last_daily_reset;
 
                 if (lastReset !== today) {
-                    // Reset daily quests
-                    // This logic ensures that on a new day (Moscow time):
-                    // 1. All quests that are NOT main or world quests are removed (this covers 'daily_' and numeric IDs)
-                    // 2. The daily_reward_claimed flag is set to false
-                    // 3. The UI will update to show 0/4 progress and remove the "All completed" banner
-                    currentCompletedQuests = currentCompletedQuests.filter(id => String(id).startsWith('main_') || String(id).startsWith('world_'));
+                    currentCompletedQuests = currentCompletedQuests.filter(
+                        id => String(id).startsWith('main_') || String(id).startsWith('world_')
+                    );
                     currentDailyRewardClaimed = false;
 
-                    // Update DB with reset state
                     await supabase
                         .from('game_state')
                         .update({
@@ -87,24 +85,20 @@ export const useQuestSystem = () => {
                         })
                         .eq('user_id', user.id);
 
-                    // Update local settings to reflect reset
-                    currentSettings = {
-                        ...currentSettings,
-                        last_daily_reset: today,
-                        daily_reward_claimed: false
-                    };
+                    currentSettings = { ...currentSettings, last_daily_reset: today, daily_reward_claimed: false };
                 }
 
-                if (gameState) {
-                    setGlobalPrimogems(gameState.primogems || 0);
-                    setGlobalWishes(gameState.wishes || 0);
-                    setCompletedQuestIds(currentCompletedQuests);
-                    setDailyRewardClaimed(currentDailyRewardClaimed);
-                    setCompensationClaimed(currentCompensationClaimed);
-                    setHiddenQuestIds(currentSettings.hidden_quests || []);
-                }
+                setUniversalPrimogems(gameState.universal_primogems || 0);
+                setWishes(gameState.wishes || 0);
+                setXp(gameState.xp || 0);
+                setXpLevel(gameState.xp_level || 1);
+                setXpMilestonesClaimed(gameState.xp_milestones_claimed || []);
+                setCompletedQuestIds(currentCompletedQuests);
+                setDailyRewardClaimed(currentDailyRewardClaimed);
+                setCompensationClaimed(currentCompensationClaimed);
+                setHiddenQuestIds(currentSettings.hidden_quests || []);
 
-                // 2. Fetch Custom Quests Config
+                // 2. Конфиги квестов
                 const { data: questConfig, error: questError } = await supabase
                     .from('user_quests')
                     .select('daily_quests_config, main_quests_config, world_quests_config')
@@ -113,7 +107,6 @@ export const useQuestSystem = () => {
 
                 console.log("Quest Config Fetch Result:", { questConfig, questError, userId: user.id });
 
-                // Prepare defaults
                 let finalDaily = defaultDailyQuests;
                 let finalMain = defaultMainQuestSteps;
                 let finalWorld = defaultWorldQuests;
@@ -121,13 +114,10 @@ export const useQuestSystem = () => {
                 let updates = { user_id: user.id };
 
                 if (questConfig) {
-                    // Daily Quests: Use DB if not null, otherwise default
                     if (questConfig.daily_quests_config !== null) {
-                        // Check if we need to migrate from old IDs (daily_X) to new numeric IDs
                         const hasOldIds = questConfig.daily_quests_config.some(q => String(q.id).startsWith('daily_'));
                         if (hasOldIds) {
-                            console.log("Migrating daily quests to new ID format...");
-                            finalDaily = defaultDailyQuests; // Use new defaults
+                            finalDaily = defaultDailyQuests;
                             needsUpdate = true;
                             updates.daily_quests_config = defaultDailyQuests;
                         } else {
@@ -138,7 +128,6 @@ export const useQuestSystem = () => {
                         updates.daily_quests_config = defaultDailyQuests;
                     }
 
-                    // Main Quests: Use DB if not null, otherwise default
                     if (questConfig.main_quests_config !== null) {
                         finalMain = questConfig.main_quests_config;
                     } else {
@@ -146,7 +135,6 @@ export const useQuestSystem = () => {
                         updates.main_quests_config = defaultMainQuestSteps;
                     }
 
-                    // World Quests: Use DB if not null, otherwise default
                     if (questConfig.world_quests_config !== null) {
                         finalWorld = questConfig.world_quests_config;
                     } else {
@@ -154,7 +142,6 @@ export const useQuestSystem = () => {
                         updates.world_quests_config = defaultWorldQuests;
                     }
                 } else {
-                    // No row exists, seed everything
                     needsUpdate = true;
                     updates = {
                         user_id: user.id,
@@ -164,17 +151,11 @@ export const useQuestSystem = () => {
                     };
                 }
 
-                // Apply updates if needed (Seeding defaults)
                 if (needsUpdate) {
-                    console.log("Seeding default quests to Supabase...");
-                    const { error: upsertError } = await supabase
-                        .from('user_quests')
-                        .upsert(updates);
-
+                    const { error: upsertError } = await supabase.from('user_quests').upsert(updates);
                     if (upsertError) console.error("Error seeding quests:", upsertError);
                 }
 
-                // Set state (normalize daily quests structure if needed)
                 const normalizedDaily = finalDaily.map(q => ({
                     ...q,
                     title: q.title || q.text || 'Новое задание',
@@ -183,9 +164,17 @@ export const useQuestSystem = () => {
                     rewards: q.rewards || { primogems: q.reward || 0 }
                 }));
 
-                setDailyQuests(normalizedDaily.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
-                setMainQuestSteps(finalMain.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
-                setWorldQuests(finalWorld.filter(q => !(currentSettings.hidden_quests || []).includes(q.id)));
+                const hiddenSet = new Set(currentSettings.hidden_quests || []);
+                setDailyQuests(normalizedDaily.filter(q => !hiddenSet.has(q.id)));
+                setMainQuestSteps(finalMain.filter(q => !hiddenSet.has(q.id)));
+                setWorldQuests(finalWorld.filter(q => !hiddenSet.has(q.id)));
+
+                // 3. XP milestones
+                const { data: milestonesData } = await supabase
+                    .from('xp_milestones')
+                    .select('*')
+                    .order('xp_required', { ascending: true });
+                if (milestonesData) setMilestones(milestonesData);
 
             } catch (error) {
                 console.error("Error fetching quest data:", error);
@@ -196,8 +185,7 @@ export const useQuestSystem = () => {
 
         fetchData();
 
-        // Realtime: sync primogems/wishes when game_state changes externally
-        // (e.g. when claimReward in useSharedQuests writes to game_state)
+        // Realtime: синхронизация universal_primogems/wishes/xp при внешних изменениях
         const gameStateChannel = supabase
             .channel(`game_state_${user.id}`)
             .on('postgres_changes', {
@@ -207,231 +195,231 @@ export const useQuestSystem = () => {
                 filter: `user_id=eq.${user.id}`
             }, (payload) => {
                 if (payload.new) {
-                    if (payload.new.primogems !== undefined) setGlobalPrimogems(payload.new.primogems);
-                    if (payload.new.wishes !== undefined) setGlobalWishes(payload.new.wishes);
+                    if (payload.new.universal_primogems !== undefined)
+                        setUniversalPrimogems(payload.new.universal_primogems);
+                    if (payload.new.wishes !== undefined) setWishes(payload.new.wishes);
+                    if (payload.new.xp !== undefined) setXp(payload.new.xp);
+                    if (payload.new.xp_level !== undefined) setXpLevel(payload.new.xp_level);
+                    if (payload.new.xp_milestones_claimed !== undefined)
+                        setXpMilestonesClaimed(payload.new.xp_milestones_claimed);
                 }
             })
             .subscribe();
 
-        return () => {
-            supabase.removeChannel(gameStateChannel);
-        };
+        return () => supabase.removeChannel(gameStateChannel);
     }, [user]);
 
-    // Determine current main quest step
+    // Производные
     const currentMainQuestIndex = mainQuestSteps.findIndex(step => !completedQuestIds.includes(step.id));
-    const isMainQuestCompleted = currentMainQuestIndex === -1 && mainQuestSteps.every(step => completedQuestIds.includes(step.id));
-
     const currentMainQuest = currentMainQuestIndex !== -1 ? mainQuestSteps[currentMainQuestIndex] : null;
-
     const mainQuestProgress = {
         current: currentMainQuestIndex !== -1 ? currentMainQuestIndex + 1 : mainQuestSteps.length,
         total: mainQuestSteps.length,
         isCompleted: currentMainQuestIndex === -1
     };
 
-    // Calculate daily progress
     const completedDailyCount = dailyQuests.filter(q => completedQuestIds.includes(q.id)).length;
     const dailyProgress = {
         current: completedDailyCount,
-        total: 4, // Hardcoded requirement as per request
+        total: 4,
         isClaimed: dailyRewardClaimed,
         canClaim: completedDailyCount >= 4 && !dailyRewardClaimed
     };
 
-    // Combine all quests for easy lookup (include all steps for lookup purposes)
-    const allQuests = [
-        ...dailyQuests,
-        ...mainQuestSteps,
-        ...worldQuests
-    ];
+    const allQuests = [...dailyQuests, ...mainQuestSteps, ...worldQuests];
 
+    // Общее количество примогемов для проверки доступности молитвы
+    const totalPrimogems = universalPrimogems + coloredPrimogems;
+
+    // Обновление game_state (всегда только personal game_state)
     const updateGameState = async (updates) => {
         if (!user) return;
 
-        // Optimistic update for UI
-        if (updates.primogems !== undefined) {
-            if (isGlobalContext) setGlobalPrimogems(updates.primogems);
-            // Note: For active connection, we depend on refreshConnections or local hack if needed, 
-            // but ideally we should update the valid state source.
-        }
-        if (updates.wishes !== undefined) {
-            if (isGlobalContext) setGlobalWishes(updates.wishes);
-        }
-        if (updates.completed_quests !== undefined && isGlobalContext) setCompletedQuestIds(updates.completed_quests);
-
+        if (updates.universal_primogems !== undefined) setUniversalPrimogems(updates.universal_primogems);
+        if (updates.wishes !== undefined) setWishes(updates.wishes);
+        if (updates.xp !== undefined) setXp(updates.xp);
+        if (updates.completed_quests !== undefined) setCompletedQuestIds(updates.completed_quests);
 
         try {
-            if (isGlobalContext) {
-                // Update Global Game State
-                const { error } = await supabase
-                    .from('game_state')
-                    .update(updates)
-                    .eq('user_id', user.id);
-                if (error) throw error;
-            } else {
-                // Update Connection State
-                // Map fields: primogems -> user_balance (or linked), wishes -> wishes_balance
-                if (!activeConnection) return;
-
-                const dbUpdates = {};
-                // Determine which balance column is mine
-                const isInitiator = activeConnection.user_id === user.id;
-                const balanceCol = isInitiator ? 'user_balance' : 'linked_user_balance';
-
-                if (updates.primogems !== undefined) dbUpdates[balanceCol] = updates.primogems;
-                if (updates.wishes !== undefined) dbUpdates.wishes_balance = updates.wishes;
-
-                // What about quests? Completed quests for a connection might not be stored yet.
-                // Ignoring quests for connection context for now unless specific req.
-
-                const { error } = await supabase
-                    .from('user_connections')
-                    .update(dbUpdates)
-                    .eq('id', activeConnection.id);
-
-                if (error) throw error;
-
-                // Trigger refresh
-                refreshConnections();
-            }
-
+            const { error } = await supabase
+                .from('game_state')
+                .update(updates)
+                .eq('user_id', user.id);
+            if (error) throw error;
         } catch (error) {
-            console.error("Error updating state:", error);
+            console.error("Error updating game state:", error);
         }
     };
 
+    // Выполнить личный квест (ежедневный/главный/мировой) → всегда universal primos
     const completeQuest = useCallback(async (questId) => {
         if (completedQuestIds.includes(questId)) return;
 
         const quest = allQuests.find(q => q.id === questId);
         if (!quest) return;
 
-        const newPrimos = primogems + (quest.rewards.primogems || 0);
-        let newWishes = wishes;
-
-        if (quest.rewards.wishes) {
-            newWishes += quest.rewards.wishes;
-        }
-
+        const newPrimos = universalPrimogems + (quest.rewards?.primogems || 0);
+        const newWishes = wishes + (quest.rewards?.wishes || 0);
+        const newXp = xp + (quest.rewards?.xp || 0);
         const newCompleted = [...completedQuestIds, questId];
 
         await updateGameState({
-            primogems: newPrimos,
+            universal_primogems: newPrimos,
             wishes: newWishes,
+            xp: newXp,
             completed_quests: newCompleted
         });
 
-        return { success: true, rewardAmount: quest.rewards.primogems || 0 };
-    }, [completedQuestIds, allQuests, primogems, wishes, user]);
+        return { success: true, rewardAmount: quest.rewards?.primogems || 0 };
+    }, [completedQuestIds, allQuests, universalPrimogems, wishes, xp, user]);
 
+    // Ежедневная награда (+20 universal primos)
     const claimDailyReward = useCallback(async () => {
-        if (dailyProgress.canClaim) {
-            const newPrimos = primogems + 20;
-            setDailyRewardClaimed(true); // Optimistic
-            setGlobalPrimogems(newPrimos);
-
-            try {
-                // Fetch current settings first to preserve other settings
-                const { data: gameState } = await supabase
-                    .from('game_state')
-                    .select('settings')
-                    .eq('user_id', user.id)
-                    .single();
-
-                const currentSettings = gameState?.settings || {};
-
-                await supabase
-                    .from('game_state')
-                    .update({
-                        primogems: newPrimos,
-                        settings: {
-                            ...currentSettings,
-                            daily_reward_claimed: true
-                        }
-                    })
-                    .eq('user_id', user.id);
-
-                return { success: true, rewardAmount: 20 };
-            } catch (error) {
-                console.error("Error claiming daily reward:", error);
-                setDailyRewardClaimed(false); // Revert
-                setGlobalPrimogems(primogems);
-                return { success: false, error: error.message };
-            }
+        if (!dailyProgress.canClaim) {
+            return { success: false, error: "Недостаточно выполненных заданий" };
         }
-        return { success: false, error: "Недостаточно выполненных заданий" };
-    }, [dailyProgress, primogems, user]);
 
+        const newPrimos = universalPrimogems + 20;
+        setDailyRewardClaimed(true);
+        setUniversalPrimogems(newPrimos);
+
+        try {
+            const { data: gameState } = await supabase
+                .from('game_state').select('settings').eq('user_id', user.id).single();
+            const currentSettings = gameState?.settings || {};
+
+            await supabase.from('game_state').update({
+                universal_primogems: newPrimos,
+                settings: { ...currentSettings, daily_reward_claimed: true }
+            }).eq('user_id', user.id);
+
+            return { success: true, rewardAmount: 20 };
+        } catch (error) {
+            console.error("Error claiming daily reward:", error);
+            setDailyRewardClaimed(false);
+            setUniversalPrimogems(universalPrimogems);
+            return { success: false, error: error.message };
+        }
+    }, [dailyProgress, universalPrimogems, user]);
+
+    // Компенсация (+40 universal primos)
     const claimCompensation = useCallback(async () => {
-        if (!compensationClaimed) {
-            const newPrimos = primogems + 40;
-            setCompensationClaimed(true); // Optimistic
-            setGlobalPrimogems(newPrimos);
+        if (compensationClaimed) return;
 
-            try {
-                // Fetch current settings first
-                const { data: gameState } = await supabase
-                    .from('game_state')
-                    .select('settings')
-                    .eq('user_id', user.id)
-                    .single();
+        const newPrimos = universalPrimogems + 40;
+        setCompensationClaimed(true);
+        setUniversalPrimogems(newPrimos);
 
-                const currentSettings = gameState?.settings || {};
+        try {
+            const { data: gameState } = await supabase
+                .from('game_state').select('settings').eq('user_id', user.id).single();
+            const currentSettings = gameState?.settings || {};
 
-                await supabase
-                    .from('game_state')
-                    .update({
-                        primogems: newPrimos,
-                        settings: {
-                            ...currentSettings,
-                            compensation_claimed: true
-                        }
-                    })
-                    .eq('user_id', user.id);
-            } catch (error) {
-                console.error("Error claiming compensation:", error);
-                setCompensationClaimed(false); // Revert
-                setGlobalPrimogems(primogems);
-            }
+            await supabase.from('game_state').update({
+                universal_primogems: newPrimos,
+                settings: { ...currentSettings, compensation_claimed: true }
+            }).eq('user_id', user.id);
+        } catch (error) {
+            console.error("Error claiming compensation:", error);
+            setCompensationClaimed(false);
+            setUniversalPrimogems(universalPrimogems);
         }
-    }, [compensationClaimed, primogems, user]);
+    }, [compensationClaimed, universalPrimogems, user]);
 
+    // Купить wish-токен (160 примогемов: цветные сначала, потом универсальные)
     const buyWish = useCallback(async () => {
-        if (primogems >= 100) {
-            const newPrimos = primogems - 100;
-            const newWishes = wishes + 1;
+        if (totalPrimogems < WISH_COST) return false;
 
-            await updateGameState({
-                primogems: newPrimos,
-                wishes: newWishes
-            });
+        const coloredToUse = Math.min(coloredPrimogems, WISH_COST);
+        const universalToUse = WISH_COST - coloredToUse;
+
+        if (universalPrimogems < universalToUse) return false;
+
+        const newUniversal = universalPrimogems - universalToUse;
+        const newColored = coloredPrimogems - coloredToUse;
+        const newWishes = wishes + 1;
+
+        setUniversalPrimogems(newUniversal);
+        setWishes(newWishes);
+
+        try {
+            await supabase.from('game_state')
+                .update({ universal_primogems: newUniversal, wishes: newWishes })
+                .eq('user_id', user.id);
+
+            if (coloredToUse > 0 && activeConnection) {
+                const isInitiator = activeConnection.user_id === user.id;
+                const coloredCol = isInitiator ? 'user_primogems' : 'linked_user_primogems';
+                await supabase.from('user_connections')
+                    .update({ [coloredCol]: newColored })
+                    .eq('id', activeConnection.id);
+                refreshConnections();
+            }
+
             return true;
+        } catch (error) {
+            console.error("Error buying wish:", error);
+            setUniversalPrimogems(universalPrimogems);
+            setWishes(wishes);
+            return false;
         }
-        return false;
-    }, [primogems, wishes, user]);
+    }, [totalPrimogems, coloredPrimogems, universalPrimogems, wishes, activeConnection, user, refreshConnections]);
 
+    // Потратить wish-токен
     const spendWish = useCallback(async () => {
-        if (wishes > 0) {
-            const newWishes = wishes - 1;
-            await updateGameState({ wishes: newWishes });
+        if (wishes <= 0) return false;
+        const newWishes = wishes - 1;
+        setWishes(newWishes);
+        try {
+            await supabase.from('game_state')
+                .update({ wishes: newWishes })
+                .eq('user_id', user.id);
             return true;
+        } catch (error) {
+            console.error("Error spending wish:", error);
+            setWishes(wishes);
+            return false;
         }
-        return false;
     }, [wishes, user]);
 
+    // Прямая оплата молитвы примогемами (160 = цветные + универсальные)
     const consumePrimosForWish = useCallback(async () => {
-        if (primogems >= 100) {
-            const newPrimos = primogems - 100;
-            await updateGameState({ primogems: newPrimos });
+        if (totalPrimogems < WISH_COST) return false;
+
+        const coloredToUse = Math.min(coloredPrimogems, WISH_COST);
+        const universalToUse = WISH_COST - coloredToUse;
+
+        if (universalPrimogems < universalToUse) return false;
+
+        const newUniversal = universalPrimogems - universalToUse;
+        const newColored = coloredPrimogems - coloredToUse;
+
+        setUniversalPrimogems(newUniversal);
+
+        try {
+            await supabase.from('game_state')
+                .update({ universal_primogems: newUniversal })
+                .eq('user_id', user.id);
+
+            if (coloredToUse > 0 && activeConnection) {
+                const isInitiator = activeConnection.user_id === user.id;
+                const coloredCol = isInitiator ? 'user_primogems' : 'linked_user_primogems';
+                await supabase.from('user_connections')
+                    .update({ [coloredCol]: newColored })
+                    .eq('id', activeConnection.id);
+                refreshConnections();
+            }
+
             return true;
+        } catch (error) {
+            console.error("Error consuming primos:", error);
+            setUniversalPrimogems(universalPrimogems);
+            return false;
         }
-        return false;
-    }, [primogems, user]);
+    }, [totalPrimogems, coloredPrimogems, universalPrimogems, activeConnection, user, refreshConnections]);
 
     const deleteSystemQuest = useCallback(async (questId) => {
         const newHidden = [...hiddenQuestIds, questId];
-        // Optimistic update
         setHiddenQuestIds(newHidden);
         setDailyQuests(prev => prev.filter(q => q.id !== questId));
         setMainQuestSteps(prev => prev.filter(q => q.id !== questId));
@@ -439,32 +427,47 @@ export const useQuestSystem = () => {
 
         try {
             const { data: gameState } = await supabase
-                .from('game_state')
-                .select('settings')
-                .eq('user_id', user.id)
-                .single();
-
+                .from('game_state').select('settings').eq('user_id', user.id).single();
             const currentSettings = gameState?.settings || {};
-            await supabase
-                .from('game_state')
-                .update({
-                    settings: { ...currentSettings, hidden_quests: newHidden }
-                })
-                .eq('user_id', user.id);
+            await supabase.from('game_state').update({
+                settings: { ...currentSettings, hidden_quests: newHidden }
+            }).eq('user_id', user.id);
         } catch (error) {
             console.error('Error hiding quest:', error);
-            // Revert
             setHiddenQuestIds(hiddenQuestIds);
         }
     }, [hiddenQuestIds, user]);
 
-    // Mark world quest completed for BOTH current user and partner simultaneously
+    // Получить награду за XP чекпоинт
+    const claimXpMilestone = useCallback(async (milestoneId) => {
+        if (!user) return { success: false };
+        if (xpMilestonesClaimed.includes(milestoneId)) return { success: false, error: 'Уже получено' };
+
+        try {
+            const { data, error } = await supabase.rpc('claim_xp_milestone', {
+                p_user_id: user.id,
+                p_milestone_id: milestoneId
+            });
+            if (error) throw error;
+            if (!data.success) return { success: false, error: data.error };
+
+            // Update local state from RPC result
+            setUniversalPrimogems(data.new_primogems);
+            setWishes(data.new_wishes);
+            setXpMilestonesClaimed(prev => [...prev, milestoneId]);
+
+            return { success: true, reward_type: data.reward_type, reward_amount: data.reward_amount };
+        } catch (error) {
+            console.error('Error claiming XP milestone:', error);
+            return { success: false, error: error.message };
+        }
+    }, [user, xpMilestonesClaimed, universalPrimogems, wishes]);
+
+    // Мировой квест — завершается сразу для обоих игроков
     const completeWorldQuest = useCallback(async (questId, partnerId) => {
-        // Optimistic local update
         setCompletedQuestIds(prev => [...prev, questId]);
 
         try {
-            // 1. Fetch current user's completed_quest_ids (already in state, but fetch fresh for safety)
             const [myState, partnerState] = await Promise.all([
                 supabase.from('game_state').select('completed_quest_ids').eq('user_id', user.id).single(),
                 supabase.from('game_state').select('completed_quest_ids').eq('user_id', partnerId).single(),
@@ -483,14 +486,23 @@ export const useQuestSystem = () => {
             ]);
         } catch (error) {
             console.error('Error completing world quest for both:', error);
-            // Revert optimistic update
             setCompletedQuestIds(prev => prev.filter(id => id !== questId));
         }
     }, [user]);
 
     return {
-        primogems,
+        // Валюты
+        universalPrimogems,
+        coloredPrimogems,
+        primogems: universalPrimogems, // backward compat alias
+        totalPrimogems,
         wishes,
+        xp,
+        xpLevel,
+        xpMilestonesClaimed,
+        milestones,
+        wishCost: WISH_COST,
+        // Квесты
         completedQuestIds,
         dailyQuests,
         mainQuest: currentMainQuest,
@@ -498,11 +510,13 @@ export const useQuestSystem = () => {
         worldQuests,
         dailyProgress,
         compensationClaimed,
+        // Действия
         completeQuest,
         deleteSystemQuest,
         completeWorldQuest,
         claimDailyReward,
         claimCompensation,
+        claimXpMilestone,
         buyWish,
         spendWish,
         consumePrimosForWish,

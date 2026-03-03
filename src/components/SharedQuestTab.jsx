@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Plus, Star, Shield, Check, X, Gift, Award } from 'lucide-react';
+import { Plus, Star, Shield, Check, X, Gift, Award, Clock } from 'lucide-react';
 import { useSharedQuests } from '../hooks/useSharedQuests';
 import { usePartnerGifts } from '../hooks/usePartnerGifts';
+import { useSubscription } from '../hooks/useSubscription';
+import PremiumLock from './PremiumLock';
+import SchedulePickerModal, { scheduleLabel } from './SchedulePickerModal';
 
 // Status badge for quests created by me
 const StatusBadge = ({ status }) => {
@@ -24,6 +27,8 @@ const SharedQuestTab = ({ partnerId }) => {
     // Current Active Sub-Tab
     const [subTab, setSubTab] = useState('quests'); // 'quests' or 'gifts'
 
+    const { isPremium } = useSubscription();
+
     const {
         questsByMe,
         loading: questsLoading,
@@ -41,7 +46,8 @@ const SharedQuestTab = ({ partnerId }) => {
 
     // Quest Form State
     const [showCreateForm, setShowCreateForm] = useState(false);
-    const [newQuest, setNewQuest] = useState({ title: '', description: '', reward: 50, type: 'one-time' });
+    const [newQuest, setNewQuest] = useState({ title: '', description: '', reward: 50, type: 'one-time', scheduleDays: null });
+    const [showSchedulePicker, setShowSchedulePicker] = useState(false);
 
     // Gift Form State
     const [showGiftForm, setShowGiftForm] = useState(false);
@@ -55,11 +61,13 @@ const SharedQuestTab = ({ partnerId }) => {
     const handleCreateQuest = async (e) => {
         e.preventDefault();
         setCreating(true);
-        const result = await createQuest(newQuest.title, newQuest.description, newQuest.reward, newQuest.type, null);
+        // Free users always get "every day" schedule; premium users get their chosen schedule
+        const scheduleDays = isPremium ? newQuest.scheduleDays : [];
+        const result = await createQuest(newQuest.title, newQuest.description, newQuest.reward, newQuest.type, scheduleDays);
         setCreating(false);
         if (result.success) {
             setShowCreateForm(false);
-            setNewQuest({ title: '', description: '', reward: 50, type: 'one-time' });
+            setNewQuest({ title: '', description: '', reward: 50, type: 'one-time', scheduleDays: null });
         } else {
             alert('Ошибка создания: ' + result.error);
         }
@@ -169,6 +177,27 @@ const SharedQuestTab = ({ partnerId }) => {
                                     ))}
                                 </div>
                             </div>
+                            {/* Schedule section */}
+                            <div className="space-y-2">
+                                <label className="text-xs text-[#8E7C68] font-bold uppercase text-opacity-80">Расписание:</label>
+                                <PremiumLock feature="Расписание квестов" compact>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSchedulePicker(true)}
+                                        className="w-full flex items-center gap-2 px-3 py-2 bg-white border border-[#E3D7B6] rounded-lg text-sm text-[#8E7C68] hover:border-[#8E7C68] transition-all"
+                                    >
+                                        <Clock size={15} className="shrink-0" />
+                                        <span className="font-medium">{scheduleLabel(newQuest.scheduleDays)}</span>
+                                        <span className="ml-auto text-xs text-[#8E7C68]/50">Изменить</span>
+                                    </button>
+                                </PremiumLock>
+                                {!isPremium && (
+                                    <p className="text-xs text-[#8E7C68]/60 text-center">
+                                        Бесплатный план: расписание фиксировано как «Каждый день»
+                                    </p>
+                                )}
+                            </div>
+
                             <button
                                 type="submit" disabled={creating || !newQuest.title.trim()}
                                 className="w-full bg-[#8E7C68] text-white py-3 rounded-xl text-sm font-bold hover:bg-[#7a6b5a] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[.98] shadow-md"
@@ -330,6 +359,16 @@ const SharedQuestTab = ({ partnerId }) => {
                         )}
                     </div>
                 </div>
+            )}
+
+            {/* Schedule Picker Modal (premium only) */}
+            {showSchedulePicker && isPremium && (
+                <SchedulePickerModal
+                    questTitle={newQuest.title || 'Новое задание'}
+                    initialDays={newQuest.scheduleDays}
+                    onSave={(days) => setNewQuest(prev => ({ ...prev, scheduleDays: days }))}
+                    onClose={() => setShowSchedulePicker(false)}
+                />
             )}
 
             {/* Shared Delete Confirmation for Quests */}
